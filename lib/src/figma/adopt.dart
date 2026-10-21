@@ -82,8 +82,16 @@ List<String> adoptChanges(
         final file = sourceOf(c.level, c.path, mode: c.mode);
         files.update(file, c.path.split('.'), r'$value', c.jsonValues[c.mode]);
       case ChangeKind.description:
-        for (final f in filesFor(c.level, c.path)) {
-          files.update(f, c.path.split('.'), r'$description', c.description);
+        // Figma has one description per variable; themes may word theirs
+        // differently on purpose. The first theme always follows Figma,
+        // the others only when they matched it (or had none).
+        final targets = filesFor(c.level, c.path);
+        for (final f in targets) {
+          final current =
+              files.nodeAt(f, c.path.split('.'))?[r'$description'] as String?;
+          if (f == targets.first || current == null || current == c.before) {
+            files.update(f, c.path.split('.'), r'$description', c.description);
+          }
         }
       case ChangeKind.deprecation:
         for (final f in filesFor(c.level, c.path)) {

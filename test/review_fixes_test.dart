@@ -282,4 +282,27 @@ module.exports = async function (figma) {
     expect(sameValue('0.6', 0.6000000238418579), isTrue);
     expect(sameValue(1.15, f32(1.15)), isTrue);
   });
+
+  test('a theme with its own description keeps it on pull', () {
+    if (!node) return markTestSkipped('node is not installed');
+    final root = createFixtureProject();
+    final dark = readJson(root, 'semantic/dark.tokens.json');
+    (((dark['color'] as Map)['background'] as Map)['base']
+        as Map)[r'$description'] = 'Dark: near-black app background.';
+    writeJson(root, 'semantic/dark.tokens.json', dark);
+    final config = loadFixture(root);
+    final model = TokenModel.load(config);
+    final plan = FigmaPlan.build(config, model);
+    final out = runMockFigma(buildPushPayload(config, plan), edits: r'''
+module.exports = async function (figma) { figma._find('Fx / Semantic', 'background/base').description = 'Main background.'; };
+''');
+    adoptChanges(config, model,
+        diffSnapshot(config, model, plan, snapshotIn(out)).changes);
+    String desc(String mode) =>
+        (((readJson(root, 'semantic/$mode.tokens.json')['color']
+                as Map)['background'] as Map)['base'] as Map)[r'$description']
+            as String;
+    expect(desc('light'), 'Main background.');
+    expect(desc('dark'), 'Dark: near-black app background.');
+  });
 }
