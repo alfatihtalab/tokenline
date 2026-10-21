@@ -24,10 +24,10 @@ abstract class TokenlineCommand extends Command<int> {
   List<String> regenerate({required bool check, bool quiet = false}) {
     final model = TokenModel.load(config);
     final result = emit(config, model);
-    if (!quiet) {
-      for (final s in result.skipped) {
-        warn('$s is not emitted by any generated class');
-      }
+    if (!quiet && result.skipped.isNotEmpty) {
+      warn('${result.skipped.length} token(s) have no generated class '
+          '(${result.skipped.take(3).join(', ')}${result.skipped.length > 3 ? ', …' : ''}) '
+          '— `tokenline validate` lists them');
     }
     return writeGenerated(config, result.files, check: check);
   }
