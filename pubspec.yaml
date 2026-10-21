@@ -1,0 +1,27 @@
+name: tokenline
+description: >-
+  Design tokens for Flutter, synced with Figma. One command pulls Figma
+  variables into DTCG token files and regenerates typed Dart constants.
+version: 0.1.0-dev
+repository: https://github.com/alfatihtalab/tokenline
+topics:
+  - design-tokens
+  - figma
+  - theme
+  - codegen
+
+environment:
+  sdk: ^3.6.0
+
+executables:
+  tokenline: tokenline
+
+dependencies:
+  args: ^2.7.0
+  dart_style: ^3.0.0
+  path: ^1.9.1
+  yaml: ^3.1.4
+
+dev_dependencies:
+  lints: ^6.1.0
+  test: ^1.33.0
