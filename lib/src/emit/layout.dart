@@ -44,6 +44,16 @@ class FileSpec {
 
 const _numberTypes = {'dimension', 'number'};
 
+/// Leading path segments the default layout drops from a member name.
+int defaultDropFor(String path, Level level) {
+  if (level == Level.components) return 0;
+  return switch (path.split('.').first) {
+    'space' => 0,
+    'font' || 'motion' => 2,
+    _ => 1,
+  };
+}
+
 /// The standard file and class layout, adapted to the groups a project has.
 ///
 /// Groups with a fixed home (color, space, radius, font, motion, elevation)
@@ -101,7 +111,14 @@ List<FileSpec> defaultLayout(TokenlineConfig config, TokenModel model) {
         level: Level.primitives, prefixes: ['elevation.'], types: {'shadow'}),
   ];
 
-  const fixedGroups = {'color', 'space', 'radius', 'font', 'motion', 'elevation'};
+  const fixedGroups = {
+    'color',
+    'space',
+    'radius',
+    'font',
+    'motion',
+    'elevation'
+  };
   final otherGroups = <String>[];
   for (final t in model.primitives.tokens.values) {
     final group = t.path.split('.').first;
@@ -125,7 +142,8 @@ List<FileSpec> defaultLayout(TokenlineConfig config, TokenModel model) {
           level: Level.primitives, prefixes: ['$g.'], types: _numberTypes),
   ];
 
-  final radius = spec(cls('radius', '${px}Radius'), 'Corner radii (`radius.*`).',
+  final radius = spec(
+      cls('radius', '${px}Radius'), 'Corner radii (`radius.*`).',
       level: Level.primitives,
       prefixes: ['radius.'],
       types: _numberTypes,
@@ -171,7 +189,8 @@ List<FileSpec> defaultLayout(TokenlineConfig config, TokenModel model) {
           drop: 2),
   ];
 
-  final motion = spec(cls('motion', '${px}Motion'), 'Motion foundations (`motion.*`).',
+  final motion = spec(
+      cls('motion', '${px}Motion'), 'Motion foundations (`motion.*`).',
       level: Level.primitives,
       prefixes: ['motion.duration.', 'motion.easing.'],
       types: {'duration', 'cubicBezier'},

@@ -67,7 +67,8 @@ class ValidateCommand extends TokenlineCommand {
     for (final s in result.skipped) {
       warn('$s is not emitted by any generated class');
     }
-    final themes = model.modes.isEmpty ? '' : ', themes: ${model.modes.join(', ')}';
+    final themes =
+        model.modes.isEmpty ? '' : ', themes: ${model.modes.join(', ')}';
     info('valid — ${model.primitives.tokens.length} primitives, '
         '${model.semantic.values.firstOrNull?.tokens.length ?? 0} semantic, '
         '${model.components.values.firstOrNull?.tokens.length ?? 0} component tokens'

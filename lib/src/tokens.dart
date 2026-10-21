@@ -39,7 +39,8 @@ class Token {
   /// Value after following aliases (set by [TokenSet.resolve]).
   Object? resolved;
 
-  bool get isAlias => value is String && _aliasPattern.hasMatch(value as String);
+  bool get isAlias =>
+      value is String && _aliasPattern.hasMatch(value as String);
 
   String get aliasTarget => _aliasPattern.firstMatch(value as String)![1]!;
 

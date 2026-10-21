@@ -49,7 +49,8 @@ EmitResult emit(TokenlineConfig config, TokenModel model,
     final classes = <String>[];
     final used = <String>{};
     for (final spec in file.classes) {
-      final source = _emitClass(spec, _setFor(model, spec), used, (path, member) {
+      final source =
+          _emitClass(spec, _setFor(model, spec), used, (path, member) {
         emitted.add(path);
         refs.putIfAbsent(path, () => DartRef(spec.name, member));
       });
@@ -57,7 +58,9 @@ EmitResult emit(TokenlineConfig config, TokenModel model,
     }
     if (classes.isEmpty) continue;
 
-    final b = StringBuffer()..write(header)..writeln();
+    final b = StringBuffer()
+      ..write(header)
+      ..writeln();
     final import = _importFor(used);
     if (import != null) {
       b
@@ -74,7 +77,10 @@ EmitResult emit(TokenlineConfig config, TokenModel model,
     for (final s in model.semantic.values) ...s.tokens.keys,
     for (final s in model.components.values) ...s.tokens.keys,
   ];
-  final skipped = {for (final k in all) if (!emitted.contains(k)) k}.toList()
+  final skipped = {
+    for (final k in all)
+      if (!emitted.contains(k)) k
+  }.toList()
     ..sort();
   return EmitResult(files, refs, skipped);
 }

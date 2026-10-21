@@ -1,0 +1,110 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  :root { color-scheme: light dark; }
+  body { margin: 0; font: 12px/1.45 Inter, system-ui, sans-serif; color: var(--figma-color-text, #222); background: var(--figma-color-bg, #fff); }
+  header { padding: 12px 14px 8px; border-bottom: 1px solid var(--figma-color-border, #e5e5e5); }
+  h1 { font-size: 13px; margin: 0 0 2px; }
+  .muted { color: var(--figma-color-text-secondary, #777); }
+  .buttons { display: flex; gap: 6px; padding: 10px 14px; flex-wrap: wrap; }
+  button { font: inherit; padding: 6px 10px; border-radius: 6px; border: 1px solid var(--figma-color-border, #ccc); background: var(--figma-color-bg, #fff); color: inherit; cursor: pointer; }
+  button.primary { background: var(--figma-color-bg-brand, #0d99ff); color: var(--figma-color-text-onbrand, #fff); border-color: transparent; }
+  #status { padding: 0 14px 8px; min-height: 18px; }
+  #results { padding: 0 14px 14px; overflow: auto; }
+  .issue { padding: 6px 8px; border-radius: 6px; margin-bottom: 4px; border-left: 3px solid var(--figma-color-border-danger, #f24822); background: var(--figma-color-bg-secondary, #f5f5f5); }
+  .issue.warning { border-left-color: var(--figma-color-border-warning, #ffaf00); }
+  .issue.clickable { cursor: pointer; }
+  .code { font-family: ui-monospace, monospace; font-size: 11px; }
+  textarea { width: 100%; height: 140px; box-sizing: border-box; font: 11px ui-monospace, monospace; }
+  label { display: flex; gap: 6px; align-items: center; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Tokenline</h1>
+  <div id="cfg" class="muted">Loading…</div>
+</header>
+<div class="buttons">
+  <button id="lint" class="primary">Lint</button>
+  <button id="fix">Fix</button>
+  <button id="export">Export</button>
+  <button id="import">Import push file…</button>
+  <input id="file" type="file" accept=".json,application/json" hidden>
+</div>
+<div id="status" class="muted"></div>
+<div id="results"></div>
+<script>
+  var $ = function (id) { return document.getElementById(id); };
+  function send(msg) { parent.postMessage({ pluginMessage: msg }, '*'); }
+  function status(text) { $('status').textContent = text || ''; }
+  function esc(s) { return String(s).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); }
+
+  $('lint').onclick = function () { $('results').innerHTML = ''; send({ type: 'lint' }); };
+  $('fix').onclick = function () { send({ type: 'fix' }); };
+  $('export').onclick = function () { $('results').innerHTML = ''; send({ type: 'export' }); };
+  $('import').onclick = function () { $('file').click(); };
+  $('file').onchange = function () {
+    var f = $('file').files[0];
+    if (!f) return;
+    var reader = new FileReader();
+    reader.onload = function () {
+      try {
+        var payload = JSON.parse(reader.result);
+        var prune = confirm('Also delete Figma variables that are not in this push file?\n\nOK = delete them, Cancel = keep them.');
+        status('Applying ' + f.name + '…');
+        send({ type: 'import', payload: payload, prune: prune });
+      } catch (e) { status('Could not read ' + f.name + ': ' + e.message); }
+      $('file').value = '';
+    };
+    reader.readAsText(f);
+  };
+
+  function renderIssues(issues, blockedExport) {
+    var errors = issues.filter(function (i) { return i.severity === 'error'; }).length;
+    var warnings = issues.length - errors;
+    status(blockedExport
+      ? 'Export blocked: fix these ' + errors + ' error(s) first.'
+      : (issues.length ? errors + ' error(s), ' + warnings + ' warning(s).' : 'All clear — 0 errors.'));
+    $('results').innerHTML = issues.map(function (i, n) {
+      return '<div class="issue ' + i.severity + (i.nodeId ? ' clickable' : '') + '" data-n="' + n + '">' +
+        '<div>' + esc(i.message) + '</div><div class="code muted">' + esc(i.code) + '</div></div>';
+    }).join('') + (blockedExport ? '<button id="force">Export anyway</button>' : '');
+    Array.prototype.forEach.call(document.querySelectorAll('.issue.clickable'), function (el) {
+      el.onclick = function () { send({ type: 'select', nodeId: issues[+el.dataset.n].nodeId }); };
+    });
+    if (blockedExport) $('force').onclick = function () { send({ type: 'export', force: true }); };
+  }
+
+  onmessage = function (e) {
+    var msg = e.data.pluginMessage;
+    if (!msg) return;
+    if (msg.type === 'config') {
+      var c = msg.config;
+      $('cfg').innerHTML = esc(msg.fileName) + ' · ' + (msg.stored ? 'rules from tokenline push' : 'default rules (run tokenline push once to store yours)') +
+        '<br>Collections: ' + esc([c.collections.primitives, c.collections.semantic, c.collections.components].filter(Boolean).join(' · ')) +
+        ' · names: ' + esc(c.nameCase);
+    } else if (msg.type === 'status') {
+      status(msg.text);
+    } else if (msg.type === 'error') {
+      status('Error: ' + msg.message);
+    } else if (msg.type === 'lint-result') {
+      renderIssues(msg.issues, msg.blockedExport);
+    } else if (msg.type === 'export-result') {
+      status('Exported ' + msg.count + ' variables and stored them in this file. `tokenline pull` can read them now, or save the file below and run `tokenline pull --from-file`.');
+      var blob = new Blob([msg.json], { type: 'application/json' });
+      $('results').innerHTML = '<p><a id="dl" download="tokenline-export.json">Download tokenline-export.json</a></p><textarea readonly></textarea>';
+      $('dl').href = URL.createObjectURL(blob);
+      document.querySelector('textarea').value = msg.json;
+    } else if (msg.type === 'import-result') {
+      var s = msg.summary;
+      status('Applied: ' + s.created + ' created, ' + s.updated + ' updated, ' + s.removed + ' removed' +
+        (s.errors.length ? ', ' + s.errors.length + ' problem(s)' : '') + '.');
+      $('results').innerHTML = s.errors.map(function (m) { return '<div class="issue">' + esc(m) + '</div>'; }).join('');
+    }
+  };
+  send({ type: 'init' });
+</script>
+</body>
+</html>

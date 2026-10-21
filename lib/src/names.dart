@@ -64,8 +64,7 @@ String pascalCase(String s) => s
 
 /// `App` -> `app`; `RezmeUI` -> `rezme_ui`.
 String snakeCase(String s) => s
-    .replaceAllMapped(
-        RegExp(r'([a-z0-9])([A-Z])'), (m) => '${m[1]}_${m[2]}')
+    .replaceAllMapped(RegExp(r'([a-z0-9])([A-Z])'), (m) => '${m[1]}_${m[2]}')
     .replaceAllMapped(RegExp(r'([A-Z])([A-Z][a-z])'), (m) => '${m[1]}_${m[2]}')
     .toLowerCase();
 

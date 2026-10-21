@@ -55,7 +55,8 @@ class TokenModel {
 
     final semantic = <String, TokenSet>{};
     final components = <String, TokenSet>{};
-    for (final MapEntry(key: mode, value: file) in config.tokens.modes.entries) {
+    for (final MapEntry(key: mode, value: file)
+        in config.tokens.modes.entries) {
       final withSemantic = withPrimitives()..addFile(file, root: dir);
       withSemantic
         ..resolve()

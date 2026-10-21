@@ -188,7 +188,8 @@ class FigmaConfig {
       for (final mode in tokens.modes.keys)
         mode: modeNames[mode] ?? pascalCase(mode),
     };
-    final unknownModes = modeNames.keys.toSet().difference(tokens.modes.keys.toSet());
+    final unknownModes =
+        modeNames.keys.toSet().difference(tokens.modes.keys.toSet());
     if (unknownModes.isNotEmpty) {
       throw TokenlineException('figma.modes names $unknownModes, which are '
           'not in tokens.modes (${tokens.modes.keys.join(', ')})');
@@ -198,8 +199,8 @@ class FigmaConfig {
     if (cs == false) {
       codeSyntax = const {};
     } else {
-      final cr = _Reader(cs is Map<String, Object?> ? cs : const {},
-          'figma.code_syntax.');
+      final cr = _Reader(
+          cs is Map<String, Object?> ? cs : const {}, 'figma.code_syntax.');
       codeSyntax = {
         Level.primitives: cr.string('primitives', fallback: '{class}.{name}'),
         Level.semantic: cr.string('semantic', fallback: '{name}'),
@@ -264,7 +265,8 @@ class IconsConfig {
       : manifest = r.string('manifest',
             fallback: 'design_tokens/icons/icons-manifest.json'),
         output = r.string('output',
-            fallback: p.join(flutter.outputDir, '${flutter.fileStem}_icons.g.dart')),
+            fallback:
+                p.join(flutter.outputDir, '${flutter.fileStem}_icons.g.dart')),
         className =
             r.string('class_name', fallback: '${flutter.classPrefix}Icons') {
     r.rejectUnknown({'manifest', 'output', 'class_name'});
@@ -346,7 +348,8 @@ class _Reader {
     _bad(key, 'a map of strings', v);
   }
 
-  _Reader map(String key) => _Reader(mapOrNull(key)?._m ?? const {}, '$_prefix$key.');
+  _Reader map(String key) =>
+      _Reader(mapOrNull(key)?._m ?? const {}, '$_prefix$key.');
 
   _Reader? mapOrNull(String key) {
     final v = raw(key);
