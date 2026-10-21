@@ -228,7 +228,8 @@ void main() {
   });
 
   group('figma sources', () {
-    test('legacy sync frame: zero widths read as 0, semantic re-links by hex',
+    test(
+        'legacy sync frame: widths of 1 or less are unreadable, semantic re-links by hex',
         () {
       final values = parseSyncFrame({
         'children': [
@@ -245,7 +246,12 @@ void main() {
           {
             'name': 'space.0',
             'type': 'RECTANGLE',
-            'absoluteBoundingBox': {'width': 0.01}
+            'absoluteBoundingBox': {'width': 1}
+          },
+          {
+            'name': 'space.16',
+            'type': 'RECTANGLE',
+            'absoluteBoundingBox': {'width': 20}
           },
           {
             'name': 'light',
@@ -265,16 +271,18 @@ void main() {
           },
         ],
       });
-      expect(values['space.0'], {'value': '0'});
+      expect(values['space.0'], {'value': '1'});
       expect(values['color.brand.500'], {'value': '#0000FF'});
 
       final root = createFixtureProject();
       final config = loadFixture(root);
-      final changes =
-          diffResolved(config, TokenModel.load(config), values).changes;
+      final result = diffResolved(config, TokenModel.load(config), values);
+      expect(result.skipped, ['space.0'], reason: 'Figma draws 0 at width 1');
+      final changes = result.changes;
       expect(changes.map((c) => c.describe()), [
         'CHANGE  primitives: color.brand.500: #1B6FE8 -> #0000FF',
         'CHANGE  semantic: color.text.primary (light): {color.neutral.900} (#1B1C21) -> {color.brand.500}',
+        'CHANGE  primitives: space.16: 16 -> 20',
       ]);
     });
 

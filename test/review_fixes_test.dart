@@ -268,7 +268,7 @@ module.exports = async function (figma) {
     writeJson(root, 'primitives/typography.tokens.json', typo);
     final config = loadFixture(root);
     final result = diffResolved(config, TokenModel.load(config), {
-      'font.letterSpacing.tight': {'value': '0'},
+      'font.letterSpacing.tight': {'value': '1'},
     });
     expect(result.changes, isEmpty);
     expect(result.skipped, ['font.letterSpacing.tight']);

@@ -143,7 +143,7 @@ class PullCommand extends TokenlineCommand {
         '(legacy: links, descriptions, added and removed variables are not visible)');
     final (:changes, :skipped) = diffResolved(config, model, values);
     if (skipped.isNotEmpty) {
-      warn('the sync frame cannot carry negative numbers; not compared: '
+      warn('the sync frame cannot carry numbers below 1; not compared: '
           '${skipped.join(', ')} (switch to figma.source: plugin)');
     }
     if (changes.isEmpty) {

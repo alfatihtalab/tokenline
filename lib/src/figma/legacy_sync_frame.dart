@@ -44,11 +44,8 @@ ResolvedValues parseSyncFrame(Map<String, Object?> frame) {
     return figmaColorToHex(c);
   }
 
-  String width(Map<String, Object?> n) {
-    final w = (n['absoluteBoundingBox'] as Map)['width'] as num;
-    // Figma cannot draw a 0-wide rectangle; it stores ~0.01 instead.
-    return w <= 0.011 ? '0' : '$w';
-  }
+  String width(Map<String, Object?> n) =>
+      '${(n['absoluteBoundingBox'] as Map)['width'] as num}';
 
   final out = <String, Map<String, String>>{};
   for (final child
@@ -74,9 +71,9 @@ ResolvedValues parseSyncFrame(Map<String, Object?> frame) {
 /// Compares resolved values with the token files. Semantic changes link to
 /// whichever primitive now has that color (raw hex when none does).
 ///
-/// A width cannot be negative, so numbers that may be negative (letter
-/// spacing, or anything negative in the token files) are skipped and
-/// returned in `skipped` rather than overwritten with 0.
+/// Figma draws a rectangle bound to any value below 1 (0, -0.2, 0.6) at
+/// width 1, so a width of 1 or less says nothing about the real value: such
+/// differences are skipped and returned in `skipped`, never adopted.
 ({List<TokenChange> changes, List<String> skipped}) diffResolved(
     TokenlineConfig config, TokenModel model, ResolvedValues values) {
   final changes = <TokenChange>[];
@@ -96,8 +93,9 @@ ResolvedValues parseSyncFrame(Map<String, Object?> frame) {
     if (primitive != null && byMode.containsKey('value')) {
       if (figmaTypeForLegacy(primitive) == null) return;
       if (primitive.type != 'color') {
-        final canonical = num.tryParse('${primitive.resolved}') ?? 0;
-        if (path.split('.').contains('letterSpacing') || canonical < 0) {
+        final figmaWidth = num.tryParse(byMode['value']!) ?? 0;
+        if (figmaWidth <= 1 &&
+            !sameValue(primitive.resolved!, byMode['value']!)) {
           skipped.add(path);
           return;
         }
