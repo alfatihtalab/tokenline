@@ -11,6 +11,7 @@ import 'package:tokenline/src/loader.dart';
 import 'support/fixture.dart';
 
 void main() {
+  pluginSmoke();
   test('init creates a working project', () async {
     final root = Directory.systemTemp.createTempSync('tl_init_').path;
     expect(
@@ -139,5 +140,35 @@ module.exports = async function (figma) { figma._find('Fx / Primitives', 'radius
         0);
     expect(readToken(root, 'primitives/radius.tokens.json'),
         isNot(contains('"lg"')));
+  });
+}
+
+void pluginSmoke() {
+  test('plugin main handles Import, Lint, Fix and Export', () async {
+    if (!hasNode) return markTestSkipped('node is not installed');
+    final root = createFixtureProject(extraConfig: '  hide_primitives: true\n');
+    expect(await runTokenline(['-C', root, 'push']), 0);
+    expect(await runTokenline(['-C', root, 'plugin', '--out', 'plug']), 0);
+    final out = p.join(root, 'posted.json');
+    final r = Process.runSync('node', [
+      'test/support/run_plugin.js',
+      p.join(root, 'plug', 'code.js'),
+      p.join(root, 'design_tokens/figma-sync/push.figma.json'),
+      out,
+    ]);
+    expect(r.exitCode, 0, reason: '${r.stdout}${r.stderr}');
+    final posted = (jsonDecode(File(out).readAsStringSync()) as List)
+        .cast<Map<String, Object?>>();
+    expect(posted.where((m) => m['type'] == 'error'), isEmpty,
+        reason: '$posted');
+    final imported = posted
+        .firstWhere((m) => m['type'] == 'import-result')['summary'] as Map;
+    expect(imported['errors'], isEmpty);
+    expect((posted.lastWhere((m) => m['type'] == 'config'))['stored'], isTrue);
+    final lint =
+        posted.firstWhere((m) => m['type'] == 'lint-result')['issues'] as List;
+    expect(lint.map((i) => (i as Map)['code']), ['typed-color']);
+    expect(posted.firstWhere((m) => m['type'] == 'export-result')['count'],
+        greaterThan(40));
   });
 }
