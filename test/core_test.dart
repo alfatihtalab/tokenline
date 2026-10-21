@@ -254,6 +254,11 @@ void main() {
             'absoluteBoundingBox': {'width': 20}
           },
           {
+            'name': 'space.24',
+            'type': 'RECTANGLE',
+            'absoluteBoundingBox': {'width': 23.9999998}
+          },
+          {
             'name': 'light',
             'type': 'FRAME',
             'children': [

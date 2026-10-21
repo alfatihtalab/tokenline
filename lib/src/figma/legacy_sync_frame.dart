@@ -100,10 +100,18 @@ ResolvedValues parseSyncFrame(Map<String, Object?> frame) {
           return;
         }
       }
+      // Rectangle widths carry layout noise (1.45 reads back as 1.4499998):
+      // compare and adopt numbers at 3 decimals.
+      final raw = _parse(primitive.type, byMode['value']!);
       final json = jsonValueFor(
-          primitive.type, _parse(primitive.type, byMode['value']!),
+          primitive.type, raw is num ? (raw * 1000).round() / 1000 : raw,
           where: 'sync frame $path');
-      if (!sameValue(primitive.resolved!, json)) {
+      final same = raw is num
+          ? ((num.tryParse('${primitive.resolved}') ?? double.nan) - raw)
+                  .abs() <
+              5e-4
+          : sameValue(primitive.resolved!, json);
+      if (!same) {
         changes.add(TokenChange(
             kind: ChangeKind.value,
             level: Level.primitives,
@@ -121,6 +129,8 @@ ResolvedValues parseSyncFrame(Map<String, Object?> frame) {
       final hex = figmaValue.toUpperCase();
       final linked = hexToPrimitive[hex];
       final json = linked == null ? hex : '{$linked}';
+      // Still linked to the same primitive: only that primitive changed.
+      if (json == token.value) continue;
       changes.add(TokenChange(
           kind: ChangeKind.value,
           level: Level.semantic,

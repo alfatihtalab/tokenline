@@ -47,6 +47,7 @@ double f32(num n) => (Float32List(1)..[0] = n.toDouble())[0];
 void main() {
   final node = hasNode;
   syncFrameSplit();
+  legacyNoise();
 
   test('names that do not round-trip still map to their own token', () {
     if (!node) return markTestSkipped('node is not installed');
@@ -346,5 +347,22 @@ void syncFrameSplit() {
       {'name': 'light', 'rects': semantic},
       {'name': 'dark', 'rects': semantic},
     ]);
+  });
+}
+
+void legacyNoise() {
+  test(
+      'legacy: a changed primitive does not re-report its linked semantic tokens',
+      () {
+    final root = createFixtureProject();
+    final config = loadFixture(root);
+    // brand/500 changes; action/primary still links to it in Figma.
+    final result = diffResolved(config, TokenModel.load(config), {
+      'color.brand.500': {'value': '#2255EE'},
+      'color.action.primary': {'light': '#2255EE'},
+      'font.lineHeight.normal': {'value': '1.4999998'},
+    });
+    expect(result.changes.map((c) => c.describe()),
+        ['CHANGE  primitives: color.brand.500: #1B6FE8 -> #2255EE']);
   });
 }
