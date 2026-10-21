@@ -5,6 +5,7 @@ import '../errors.dart';
 import '../names.dart';
 import 'plan.dart';
 import 'plugin_assets.g.dart';
+import 'snapshot.dart';
 
 const pushFormat = 'tokenline.figma-push';
 
@@ -74,6 +75,16 @@ Map<String, Object?> buildPushPayload(TokenlineConfig config, FigmaPlan plan) {
         'id': figma.syncFrameId,
         'semanticCollection': figma.collections[Level.semantic],
         'modes': figma.modes,
+        // Every rectangle, so the part that rebuilds the frame (the last
+        // one of a split push) has all of them: [path, level, collection,
+        // name, type].
+        'entries': [
+          for (final v in plan.variables)
+            if (v.level != Level.components &&
+                (v.figmaType == FigmaType.color ||
+                    v.figmaType == FigmaType.float))
+              [v.path, v.level.name, v.collection, v.name, v.figmaType],
+        ],
       },
   };
 }
@@ -142,17 +153,23 @@ return await figmaApplyPayload(TOKENLINE_PAYLOAD, { prune: ${prune && index == c
   final whole = script({...base, ...last, 'variables': variables}, 1, 1);
   if (whole.length <= maxChars) return [whole];
 
-  // Greedy split by encoded size; the keep-list rides with the last part.
+  // Greedy split by encoded size. The last part also carries the rules,
+  // the sync-frame entries and (with prune) the keep-list; when those do
+  // not fit next to its variables they get a part of their own.
   final keep = [for (final v in variables) '${v['collection']}|${v['name']}'];
-  final overhead =
-      script({...base, ...last, if (prune) 'keep': keep, 'variables': []}, 9, 9)
-          .length;
-  final budget = maxChars - overhead;
-  if (budget < 2000) {
-    throw TokenlineException('${variables.length} variables are too many to '
-        'prune through use_figma scripts — apply push.figma.json with the '
-        "plugin's Import push file (no size limit) and choose to delete extras");
+  final extras = {...last, if (prune) 'keep': keep};
+  final plain = script({...base, 'variables': []}, 99, 99).length;
+  final withExtras =
+      script({...base, ...extras, 'variables': []}, 99, 99).length;
+  if (withExtras > maxChars) {
+    throw TokenlineException(prune
+        ? '${variables.length} variables are too many to prune through '
+            "use_figma scripts — apply push.figma.json with the plugin's "
+            'Import push file (no size limit) and choose to delete extras'
+        : 'the push is too big for use_figma scripts — apply '
+            "push.figma.json with the plugin's Import push file instead");
   }
+  final budget = maxChars - plain;
   final parts = <List<Map<String, Object?>>>[[]];
   var size = 0;
   for (final v in variables) {
@@ -164,12 +181,13 @@ return await figmaApplyPayload(TOKENLINE_PAYLOAD, { prune: ${prune && index == c
     parts.last.add(v);
     size += s;
   }
+  if (size > maxChars - withExtras) parts.add([]); // extras alone at the end
+
   return [
     for (var i = 0; i < parts.length; i++)
       script({
         ...base,
-        if (i == parts.length - 1) ...last,
-        if (i == parts.length - 1 && prune) 'keep': keep,
+        if (i == parts.length - 1) ...extras,
         'variables': parts[i],
       }, i + 1, parts.length),
   ];

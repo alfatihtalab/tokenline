@@ -16,6 +16,8 @@ async function main() {
   c.renameMode(c.modes[0].modeId, 'Base');
   global.figma.variables.createVariable('legacy/old', c, 'FLOAT');
   global.figma.variables.createVariable('_draft/keep-me', c, 'FLOAT');
+  var frame = global.figma.createFrame();
+  if (process.env.FRAME_ID_FILE) fs.writeFileSync(process.env.FRAME_ID_FILE, frame.id);
 
   var results = [];
   for (var i = 0; i < scripts.length; i++) {
@@ -26,6 +28,10 @@ async function main() {
   fs.writeFileSync(path.join(outDir, 'results.json'), JSON.stringify(results, null, 2));
   fs.writeFileSync(path.join(outDir, 'snapshot.json'), JSON.stringify(await core.figmaExportSnapshot(), null, 2));
   fs.writeFileSync(path.join(outDir, 'stored-config.json'), global.figma.root.getSharedPluginData('tokenline', 'config'));
+  fs.writeFileSync(path.join(outDir, 'frame.json'), JSON.stringify({
+    rects: frame.children.filter(function (n) { return n.type === 'RECTANGLE'; }).map(function (n) { return n.name; }),
+    subframes: frame.children.filter(function (n) { return n.type === 'FRAME'; }).map(function (n) { return { name: n.name, rects: n.children.length }; }),
+  }));
 }
 
 main().catch(function (e) { console.error(e && e.stack || e); process.exit(1); });

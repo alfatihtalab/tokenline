@@ -46,6 +46,7 @@ double f32(num n) => (Float32List(1)..[0] = n.toDouble())[0];
 
 void main() {
   final node = hasNode;
+  syncFrameSplit();
 
   test('names that do not round-trip still map to their own token', () {
     if (!node) return markTestSkipped('node is not installed');
@@ -304,5 +305,46 @@ module.exports = async function (figma) { figma._find('Fx / Semantic', 'backgrou
             as String;
     expect(desc('light'), 'Main background.');
     expect(desc('dark'), 'Dark: near-black app background.');
+  });
+}
+
+void syncFrameSplit() {
+  test('a split push rebuilds the legacy sync frame with every entry', () {
+    if (!hasNode) return markTestSkipped('node is not installed');
+    // run_scripts.js creates its frame as node 5:1 (asserted below).
+    final root = createFixtureProject(
+        extraConfig: '  source: sync-frame\n  sync_frame_id: "5:1"\n');
+    final config = loadFixture(root);
+    final plan = FigmaPlan.build(config, TokenModel.load(config));
+    final scripts = buildPushScripts(buildPushPayload(config, plan),
+        prune: false, maxChars: 12000);
+    expect(scripts.length, greaterThan(2));
+    final out = Directory.systemTemp.createTempSync('tokenline_frame_').path;
+    final files = [
+      for (var i = 0; i < scripts.length; i++)
+        (File(p.join(out, 'part$i.js'))..writeAsStringSync(scripts[i])).path,
+    ];
+    final r = Process.runSync('node', [
+      'test/support/run_scripts.js',
+      'lib/src/figma/plugin_src/core.js',
+      out,
+      ...files,
+    ], environment: {
+      'FRAME_ID_FILE': p.join(out, 'frame-id')
+    });
+    expect(r.exitCode, 0, reason: '${r.stdout}${r.stderr}');
+    expect(File(p.join(out, 'frame-id')).readAsStringSync(), '5:1');
+    final frame =
+        jsonDecode(File(p.join(out, 'frame.json')).readAsStringSync()) as Map;
+    final primitives = plan.variables
+        .where((v) => v.level == Level.primitives && v.figmaType != 'STRING')
+        .length;
+    final semantic =
+        plan.variables.where((v) => v.level == Level.semantic).length;
+    expect((frame['rects'] as List).length, primitives);
+    expect(frame['subframes'], [
+      {'name': 'light', 'rects': semantic},
+      {'name': 'dark', 'rects': semantic},
+    ]);
   });
 }

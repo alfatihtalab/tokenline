@@ -54,8 +54,25 @@ function createMockFigma(fileName) {
     return v;
   }
 
+  var nodes = {};
+  function makeNode(type) {
+    var n = { id: nextId++ + ':1', type: type, name: '', children: [], fills: [], width: 0, bound: null,
+      resize: function (w) { n.width = w; },
+      setBoundVariable: function (field, v) { n.bound = v.id; },
+      appendChild: function (c) { n.children.push(c); c.parent = n; },
+      setExplicitVariableModeForCollection: function (c, modeId) { n.explicitMode = modeId; },
+      remove: function () { if (n.parent) n.parent.children.splice(n.parent.children.indexOf(n), 1); },
+    };
+    nodes[n.id] = n;
+    return n;
+  }
+
   return {
     fileKey: undefined,
+    createFrame: function () { return makeNode('FRAME'); },
+    createRectangle: function () { return makeNode('RECTANGLE'); },
+    getNodeByIdAsync: async function (id) { return nodes[id] || null; },
+    _nodes: nodes,
     root: {
       name: fileName || 'Mock file',
       getSharedPluginData: function (ns, key) { return (shared[ns] || {})[key] || ''; },
@@ -75,6 +92,7 @@ function createMockFigma(fileName) {
         return makeVariable(name, collection, type);
       },
       createVariableAlias: function (v) { return { type: 'VARIABLE_ALIAS', id: v.id }; },
+      setBoundVariableForPaint: function (paint, field, v) { return Object.assign({}, paint, { boundVariables: { color: { id: v.id } } }); },
     },
     _shared: shared,
     _find: function (collectionName, name) {
