@@ -1,5 +1,9 @@
+import 'dart:io';
+
 import 'package:dart_style/dart_style.dart';
 import 'package:path/path.dart' as p;
+import 'package:pub_semver/pub_semver.dart';
+import 'package:yaml/yaml.dart';
 
 import '../config.dart';
 import '../errors.dart';
@@ -69,7 +73,7 @@ EmitResult emit(TokenlineConfig config, TokenModel model,
     }
     b.write(classes.join('\n'));
     files.add(GeneratedFile(p.join(config.flutter.outputDir, file.fileName),
-        formatDart(b.toString(), file.fileName)));
+        formatDart(b.toString(), file.fileName, root: config.root)));
   }
 
   final all = [
@@ -191,14 +195,48 @@ String colorToDart(String hex) {
   return 'Color(0x${argb.toUpperCase()})';
 }
 
-final _formatter =
-    DartFormatter(languageVersion: DartFormatter.latestLanguageVersion);
+final _formatters = <String, DartFormatter>{};
 
-/// Formats generated source with the pinned dart_style, so output does not
-/// depend on which Dart SDK runs the command.
-String formatDart(String source, String name) {
+/// A formatter that matches `dart format` in the project at [root]: its
+/// language version comes from the pubspec's SDK constraint and its page
+/// width from analysis_options.yaml. Output then never depends on which
+/// Dart SDK runs tokenline, and `dart format` leaves generated files alone.
+DartFormatter formatterFor(String root) => _formatters.putIfAbsent(root, () {
+      var version = DartFormatter.latestLanguageVersion;
+      final pubspec = File(p.join(root, 'pubspec.yaml'));
+      if (pubspec.existsSync()) {
+        try {
+          final sdk = ((loadYaml(pubspec.readAsStringSync())
+              as Map?)?['environment'] as Map?)?['sdk'];
+          final constraint =
+              sdk is String ? VersionConstraint.parse(sdk) : null;
+          final min = constraint is VersionRange ? constraint.min : null;
+          if (min != null) {
+            final v = Version(min.major, min.minor, 0);
+            if (v < version) version = v;
+          }
+        } on Object {
+          // Unreadable pubspec: keep the latest style.
+        }
+      }
+      int? pageWidth;
+      final options = File(p.join(root, 'analysis_options.yaml'));
+      if (options.existsSync()) {
+        try {
+          final width = ((loadYaml(options.readAsStringSync())
+              as Map?)?['formatter'] as Map?)?['page_width'];
+          if (width is int) pageWidth = width;
+        } on Object {
+          // Unreadable options: default width.
+        }
+      }
+      return DartFormatter(languageVersion: version, pageWidth: pageWidth);
+    });
+
+/// Formats generated source as `dart format` would in the project.
+String formatDart(String source, String name, {required String root}) {
   try {
-    return _formatter.format(source, uri: name);
+    return formatterFor(root).format(source, uri: name);
   } on FormatterException catch (e) {
     throw TokenlineException(
         'generated $name is not valid Dart (bug in tokenline):\n${e.message()}');

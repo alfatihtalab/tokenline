@@ -7,9 +7,11 @@ const pluginCoreJs = r'''
 // tests. Pure functions take plain data; the `figma*` functions use the
 // Figma Plugin API. Keep this file free of plugin-UI code.
 
+// <apply>
 var TOKENLINE_NAMESPACE = 'tokenline';
+// </apply>
 var SNAPSHOT_FORMAT = 'tokenline.figma-snapshot';
-var CHUNK_SIZE = 90000;
+var CHUNK_SIZE = 30000; // chars; entries are capped at 100 kB of UTF-8
 
 var RESERVED = ['assert', 'break', 'case', 'catch', 'class', 'const', 'continue',
   'default', 'do', 'else', 'enum', 'extends', 'false', 'final', 'finally', 'for',
@@ -22,9 +24,11 @@ function kebabToCamel(s) {
   return s.replace(/-([a-z])/g, function (_, c) { return c.toUpperCase(); });
 }
 
+// <apply>
 function isDraftName(name) {
   return name.split('/').some(function (s) { return s.trim().charAt(0) === '_'; });
 }
+// </apply>
 
 function levelOfCollection(config, collectionName) {
   var c = config.collections;
@@ -69,11 +73,13 @@ function rgbaToHex(c) {
   return a < 1 ? hex + h(a) : hex;
 }
 
+// <apply>
 function hexToRgba(hex) {
   var h = hex.replace('#', '');
   function n(i) { return parseInt(h.slice(i, i + 2), 16) / 255; }
   return { r: n(0), g: n(2), b: n(4), a: h.length === 8 ? n(6) : 1 };
 }
+// </apply>
 
 // ---- lint (pure; mirrors lib/src/lint/rules.dart) -----------------------
 
@@ -97,7 +103,7 @@ function lintSnapshot(snapshot, config) {
     var name = config.collections[level];
     if (!name) return;
     var c = collections[name];
-    if (!c) { add('collection-missing', 'error', 'No collection "' + name + '" (' + level + ').'); return; }
+    if (!c) { add('collection-missing', 'warning', 'No collection "' + name + '" (' + level + ') yet — run push to create it.'); return; }
     if (level === 'semantic') {
       Object.keys(config.modes).forEach(function (mode) {
         var figmaMode = config.modes[mode];
@@ -285,6 +291,7 @@ async function figmaFix(config) {
   return { hidden: hidden };
 }
 
+// <apply>
 // ---- apply a push payload (Figma API) -------------------------------------
 
 async function figmaApplyPayload(payload, options) {
@@ -358,6 +365,15 @@ async function figmaApplyPayload(payload, options) {
   });
 
   if (prune) {
+    // A split push sends the full keep-list with its last part.
+    if (payload.keep) {
+      wanted = {};
+      payload.keep.forEach(function (k) {
+        var sep = k.indexOf('|');
+        var c = byName[k.slice(0, sep)];
+        if (c) wanted[c.id + '|' + k.slice(sep + 1)] = true;
+      });
+    }
     var managed = {};
     payload.collections.forEach(function (pc) { managed[byName[pc.name].id] = true; });
     Object.keys(existing).forEach(function (key) {
@@ -367,7 +383,11 @@ async function figmaApplyPayload(payload, options) {
   }
 
   if (payload.config) {
-    figma.root.setSharedPluginData(TOKENLINE_NAMESPACE, 'config', JSON.stringify(payload.config));
+    try {
+      figma.root.setSharedPluginData(TOKENLINE_NAMESPACE, 'config', JSON.stringify(payload.config));
+    } catch (e) {
+      summary.errors.push('Could not store the plugin rules in the file (' + e.message + '); the plugin will use defaults until a plugin Import runs.');
+    }
   }
   if (payload.syncFrame) summary.syncFrame = await figmaBuildSyncFrame(payload, byName, modeIds, find);
   return summary;
@@ -404,6 +424,8 @@ async function figmaBuildSyncFrame(payload, byName, modeIds, find) {
   });
   return 'rebuilt';
 }
+
+// </apply>
 
 if (typeof module !== 'undefined') {
   module.exports = { lintSnapshot: lintSnapshot, pathForName: pathForName, dartNameGuess: dartNameGuess,
@@ -413,15 +435,166 @@ if (typeof module !== 'undefined') {
 }
 ''';
 
+/// Only what applying a push needs.
+const pluginApplyJs = r'''
+var TOKENLINE_NAMESPACE = 'tokenline';
+
+function isDraftName(name) {
+  return name.split('/').some(function (s) { return s.trim().charAt(0) === '_'; });
+}
+
+function hexToRgba(hex) {
+  var h = hex.replace('#', '');
+  function n(i) { return parseInt(h.slice(i, i + 2), 16) / 255; }
+  return { r: n(0), g: n(2), b: n(4), a: h.length === 8 ? n(6) : 1 };
+}
+
+// ---- apply a push payload (Figma API) -------------------------------------
+
+async function figmaApplyPayload(payload, options) {
+  var prune = !!(options && options.prune);
+  var summary = { collectionsCreated: 0, modesAdded: 0, created: 0, updated: 0, removed: 0, errors: [] };
+
+  var collections = await figma.variables.getLocalVariableCollectionsAsync();
+  var byName = {};
+  collections.forEach(function (c) { byName[c.name] = c; });
+  var modeIds = {}; // collection name -> mode name -> id
+  payload.collections.forEach(function (pc) {
+    var c = byName[pc.name];
+    if (!c) {
+      c = figma.variables.createVariableCollection(pc.name);
+      c.renameMode(c.modes[0].modeId, pc.modes[0]);
+      byName[pc.name] = c;
+      summary.collectionsCreated++;
+    }
+    pc.modes.forEach(function (m) {
+      if (!c.modes.some(function (x) { return x.name === m; })) { c.addMode(m); summary.modesAdded++; }
+    });
+    modeIds[pc.name] = {};
+    c.modes.forEach(function (m) { modeIds[pc.name][m.name] = m.modeId; });
+  });
+
+  var existing = {};
+  (await figma.variables.getLocalVariablesAsync()).forEach(function (v) {
+    existing[v.variableCollectionId + '|' + v.name] = v;
+  });
+  function find(collectionName, name) {
+    var c = byName[collectionName];
+    return c ? existing[c.id + '|' + name] : undefined;
+  }
+
+  // Create everything first so links can point anywhere.
+  var wanted = {};
+  payload.variables.forEach(function (pv) {
+    var c = byName[pv.collection];
+    wanted[c.id + '|' + pv.name] = true;
+    var v = find(pv.collection, pv.name);
+    if (v && v.resolvedType !== pv.type) {
+      summary.errors.push(pv.collection + ': ' + pv.name + ' is ' + v.resolvedType + ' in Figma but ' + pv.type + ' in the tokens — delete it in Figma to recreate it.');
+      return;
+    }
+    if (!v) {
+      v = figma.variables.createVariable(pv.name, c, pv.type);
+      existing[c.id + '|' + pv.name] = v;
+      summary.created++;
+    }
+  });
+
+  payload.variables.forEach(function (pv) {
+    var v = find(pv.collection, pv.name);
+    if (!v || v.resolvedType !== pv.type) return;
+    Object.keys(pv.values).forEach(function (mode) {
+      var modeId = modeIds[pv.collection][mode];
+      var value = pv.values[mode];
+      if (value && typeof value === 'object' && value.alias) {
+        var target = find(value.collection, value.alias);
+        if (!target) { summary.errors.push(pv.name + ' links to missing ' + value.collection + ': ' + value.alias); return; }
+        v.setValueForMode(modeId, figma.variables.createVariableAlias(target));
+      } else {
+        v.setValueForMode(modeId, pv.type === 'COLOR' ? hexToRgba(value) : value);
+      }
+    });
+    if ((v.description || '') !== (pv.description || '')) v.description = pv.description || '';
+    if (pv.scopes) v.scopes = pv.scopes;
+    if (typeof pv.hiddenFromPublishing === 'boolean') v.hiddenFromPublishing = pv.hiddenFromPublishing;
+    if (pv.codeSyntax) v.setVariableCodeSyntax('WEB', pv.codeSyntax);
+    summary.updated++;
+  });
+
+  if (prune) {
+    // A split push sends the full keep-list with its last part.
+    if (payload.keep) {
+      wanted = {};
+      payload.keep.forEach(function (k) {
+        var sep = k.indexOf('|');
+        var c = byName[k.slice(0, sep)];
+        if (c) wanted[c.id + '|' + k.slice(sep + 1)] = true;
+      });
+    }
+    var managed = {};
+    payload.collections.forEach(function (pc) { managed[byName[pc.name].id] = true; });
+    Object.keys(existing).forEach(function (key) {
+      var v = existing[key];
+      if (managed[v.variableCollectionId] && !wanted[key] && !isDraftName(v.name)) { v.remove(); summary.removed++; }
+    });
+  }
+
+  if (payload.config) {
+    try {
+      figma.root.setSharedPluginData(TOKENLINE_NAMESPACE, 'config', JSON.stringify(payload.config));
+    } catch (e) {
+      summary.errors.push('Could not store the plugin rules in the file (' + e.message + '); the plugin will use defaults until a plugin Import runs.');
+    }
+  }
+  if (payload.syncFrame) summary.syncFrame = await figmaBuildSyncFrame(payload, byName, modeIds, find);
+  return summary;
+}
+
+// Legacy: rebuild the frame `tokenline pull` reads when figma.source is
+// sync-frame. Every rectangle is bound to a variable.
+async function figmaBuildSyncFrame(payload, byName, modeIds, find) {
+  var frame = await figma.getNodeByIdAsync(payload.syncFrame.id);
+  if (!frame || frame.type !== 'FRAME') return 'sync frame ' + payload.syncFrame.id + ' not found';
+  frame.children.slice().forEach(function (n) { n.remove(); });
+  function rect(parent, pv) {
+    var v = find(pv.collection, pv.name);
+    if (!v) return;
+    var r = figma.createRectangle();
+    r.name = pv.path;
+    r.resize(8, 8);
+    if (pv.type === 'COLOR') {
+      r.fills = [figma.variables.setBoundVariableForPaint({ type: 'SOLID', color: { r: 0, g: 0, b: 0 } }, 'color', v)];
+    } else {
+      r.setBoundVariable('width', v);
+    }
+    parent.appendChild(r);
+  }
+  var syncable = payload.variables.filter(function (pv) { return pv.type === 'COLOR' || pv.type === 'FLOAT'; });
+  syncable.filter(function (pv) { return pv.level === 'primitives'; }).forEach(function (pv) { rect(frame, pv); });
+  var sem = byName[payload.syncFrame.semanticCollection];
+  Object.keys(payload.syncFrame.modes || {}).forEach(function (mode) {
+    var sub = figma.createFrame();
+    sub.name = mode;
+    frame.appendChild(sub);
+    if (sem) sub.setExplicitVariableModeForCollection(sem, modeIds[sem.name][payload.syncFrame.modes[mode]]);
+    syncable.filter(function (pv) { return pv.level === 'semantic'; }).forEach(function (pv) { rect(sub, pv); });
+  });
+  return 'rebuilt';
+}
+
+''';
+
 /// Plugin main file (core + UI wiring).
 const pluginCodeJs = r'''
 // Tokenline core — runs inside Figma (plugin or use_figma) and in Node for
 // tests. Pure functions take plain data; the `figma*` functions use the
 // Figma Plugin API. Keep this file free of plugin-UI code.
 
+// <apply>
 var TOKENLINE_NAMESPACE = 'tokenline';
+// </apply>
 var SNAPSHOT_FORMAT = 'tokenline.figma-snapshot';
-var CHUNK_SIZE = 90000;
+var CHUNK_SIZE = 30000; // chars; entries are capped at 100 kB of UTF-8
 
 var RESERVED = ['assert', 'break', 'case', 'catch', 'class', 'const', 'continue',
   'default', 'do', 'else', 'enum', 'extends', 'false', 'final', 'finally', 'for',
@@ -434,9 +607,11 @@ function kebabToCamel(s) {
   return s.replace(/-([a-z])/g, function (_, c) { return c.toUpperCase(); });
 }
 
+// <apply>
 function isDraftName(name) {
   return name.split('/').some(function (s) { return s.trim().charAt(0) === '_'; });
 }
+// </apply>
 
 function levelOfCollection(config, collectionName) {
   var c = config.collections;
@@ -481,11 +656,13 @@ function rgbaToHex(c) {
   return a < 1 ? hex + h(a) : hex;
 }
 
+// <apply>
 function hexToRgba(hex) {
   var h = hex.replace('#', '');
   function n(i) { return parseInt(h.slice(i, i + 2), 16) / 255; }
   return { r: n(0), g: n(2), b: n(4), a: h.length === 8 ? n(6) : 1 };
 }
+// </apply>
 
 // ---- lint (pure; mirrors lib/src/lint/rules.dart) -----------------------
 
@@ -509,7 +686,7 @@ function lintSnapshot(snapshot, config) {
     var name = config.collections[level];
     if (!name) return;
     var c = collections[name];
-    if (!c) { add('collection-missing', 'error', 'No collection "' + name + '" (' + level + ').'); return; }
+    if (!c) { add('collection-missing', 'warning', 'No collection "' + name + '" (' + level + ') yet — run push to create it.'); return; }
     if (level === 'semantic') {
       Object.keys(config.modes).forEach(function (mode) {
         var figmaMode = config.modes[mode];
@@ -697,6 +874,7 @@ async function figmaFix(config) {
   return { hidden: hidden };
 }
 
+// <apply>
 // ---- apply a push payload (Figma API) -------------------------------------
 
 async function figmaApplyPayload(payload, options) {
@@ -770,6 +948,15 @@ async function figmaApplyPayload(payload, options) {
   });
 
   if (prune) {
+    // A split push sends the full keep-list with its last part.
+    if (payload.keep) {
+      wanted = {};
+      payload.keep.forEach(function (k) {
+        var sep = k.indexOf('|');
+        var c = byName[k.slice(0, sep)];
+        if (c) wanted[c.id + '|' + k.slice(sep + 1)] = true;
+      });
+    }
     var managed = {};
     payload.collections.forEach(function (pc) { managed[byName[pc.name].id] = true; });
     Object.keys(existing).forEach(function (key) {
@@ -779,7 +966,11 @@ async function figmaApplyPayload(payload, options) {
   }
 
   if (payload.config) {
-    figma.root.setSharedPluginData(TOKENLINE_NAMESPACE, 'config', JSON.stringify(payload.config));
+    try {
+      figma.root.setSharedPluginData(TOKENLINE_NAMESPACE, 'config', JSON.stringify(payload.config));
+    } catch (e) {
+      summary.errors.push('Could not store the plugin rules in the file (' + e.message + '); the plugin will use defaults until a plugin Import runs.');
+    }
   }
   if (payload.syncFrame) summary.syncFrame = await figmaBuildSyncFrame(payload, byName, modeIds, find);
   return summary;
@@ -816,6 +1007,8 @@ async function figmaBuildSyncFrame(payload, byName, modeIds, find) {
   });
   return 'rebuilt';
 }
+
+// </apply>
 
 if (typeof module !== 'undefined') {
   module.exports = { lintSnapshot: lintSnapshot, pathForName: pathForName, dartNameGuess: dartNameGuess,

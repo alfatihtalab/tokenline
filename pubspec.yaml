@@ -20,6 +20,7 @@ dependencies:
   args: ^2.7.0
   dart_style: ^3.0.0
   path: ^1.9.1
+  pub_semver: ^2.1.0
   yaml: ^3.1.4
 
 dev_dependencies:

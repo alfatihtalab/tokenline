@@ -24,6 +24,7 @@ void main() {
     test('round trip', () {}, skip: 'node is not installed');
     return;
   }
+  splitScripts();
 
   for (final nameCase in ['kebab', 'camel']) {
     test('push then export gives zero differences ($nameCase names)', () {
@@ -227,5 +228,53 @@ module.exports = async function (figma, hexToRgba) {
           'deprecated-target border/subtle',
           'primitive-scopes brand/50',
         ]));
+  });
+}
+
+void splitScripts() {
+  test('split push scripts run in order, prune keeps drafts', () {
+    if (!hasNode) return markTestSkipped('node is not installed');
+    final root = createFixtureProject();
+    final config = loadFixture(root);
+    final model = TokenModel.load(config);
+    final plan = FigmaPlan.build(config, model);
+    final scripts = buildPushScripts(buildPushPayload(config, plan),
+        prune: true, maxChars: 12000);
+    expect(scripts.length, greaterThan(1));
+    for (final s in scripts) {
+      expect(s.length, lessThanOrEqualTo(12000));
+    }
+    final out = Directory.systemTemp.createTempSync('tokenline_split_').path;
+    final files = [
+      for (var i = 0; i < scripts.length; i++)
+        (File(p.join(out, 'part$i.js'))..writeAsStringSync(scripts[i])).path,
+    ];
+    final r = Process.runSync('node', [
+      'test/support/run_scripts.js',
+      'lib/src/figma/plugin_src/core.js',
+      out,
+      ...files,
+    ]);
+    expect(r.exitCode, 0, reason: '${r.stdout}${r.stderr}');
+    final results =
+        jsonDecode(File(p.join(out, 'results.json')).readAsStringSync())
+            as List;
+    for (final res in results) {
+      expect((res as Map)['errors'], isEmpty);
+    }
+    expect((results.last as Map)['removed'], 1,
+        reason: 'legacy/old pruned, draft kept');
+    final snapshot = snapshotIn(out);
+    expect(snapshot.variables.map((v) => v.name), contains('_draft/keep-me'));
+    expect(
+        snapshot.variables.map((v) => v.name), isNot(contains('legacy/old')));
+    expect(
+        diffSnapshot(config, model, plan, snapshot)
+            .changes
+            .map((c) => c.describe()),
+        isEmpty);
+    expect(
+        jsonDecode(File(p.join(out, 'stored-config.json')).readAsStringSync()),
+        containsPair('nameCase', 'kebab'));
   });
 }

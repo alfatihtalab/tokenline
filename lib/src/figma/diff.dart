@@ -99,12 +99,15 @@ SnapshotDiff diffSnapshot(TokenlineConfig config, TokenModel model,
   // ---- collections and modes ------------------------------------------
   final modeFor =
       <Level, Map<String?, String>>{}; // level -> token mode -> figma mode
+  final missing = <Level>{};
   for (final MapEntry(key: level, value: name) in figma.collections.entries) {
     final c = snapshot.collectionNamed(name);
     if (c == null) {
-      throw TokenlineException('Figma file has no collection "$name" '
-          '(it has: ${snapshot.collections.map((c) => c.name).join(', ')}). '
-          'Check figma.collections in tokenline.yaml, or run push first.');
+      final count = plan.variables.where((v) => v.level == level).length;
+      warnings.add('Figma has no collection "$name" yet — $count '
+          '${level.name} token(s) not compared; run push to create it');
+      missing.add(level);
+      continue;
     }
     if (level == Level.semantic) {
       final map = <String?, String>{};
@@ -132,6 +135,12 @@ SnapshotDiff diffSnapshot(TokenlineConfig config, TokenModel model,
         null: c.modes.contains(wanted) ? wanted : c.modes.first
       };
     }
+  }
+
+  if (missing.length == figma.collections.length) {
+    throw TokenlineException('Figma file has none of the collections in '
+        'tokenline.yaml (it has: ${snapshot.collections.map((c) => c.name).join(', ')}). '
+        'Check figma.collections, or run push first.');
   }
 
   // ---- index Figma variables by token path -----------------------------
@@ -270,7 +279,9 @@ SnapshotDiff diffSnapshot(TokenlineConfig config, TokenModel model,
             jsonValues: {mode: json}));
       }
     }
-    if (plain != planned.description) {
+    // An empty Figma description never erases one written in the token
+    // files (older pushes did not send descriptions).
+    if (plain.isNotEmpty && plain != planned.description) {
       changes.add(TokenChange(
           kind: ChangeKind.description,
           level: level,
@@ -290,13 +301,26 @@ SnapshotDiff diffSnapshot(TokenlineConfig config, TokenModel model,
     }
   }
 
+  // Missing from Figma counts as removed only if an earlier pull saw it
+  // there; otherwise it simply has not been pushed yet.
+  final notPushed = <String>[];
   for (final planned in plan.variables) {
+    if (missing.contains(planned.level)) continue;
     if (byKey.containsKey((planned.level, planned.path))) continue;
+    if (!knownIds.containsKey(planned.path)) {
+      notPushed.add(planned.path);
+      continue;
+    }
     changes.add(TokenChange(
         kind: ChangeKind.removed,
         level: planned.level,
         path: planned.path,
         wasDeprecated: planned.deprecation != null));
+  }
+
+  if (notPushed.isNotEmpty) {
+    warnings.add('${notPushed.length} token(s) are not in Figma yet — run push '
+        'to create them: ${notPushed.take(6).join(', ')}${notPushed.length > 6 ? ', …' : ''}');
   }
 
   // An added variable whose id was a removed token's id is a rename.

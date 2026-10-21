@@ -33,19 +33,37 @@ class PushCommand extends TokenlineCommand {
     final plan = FigmaPlan.build(config, model);
     final payload = buildPushPayload(config, plan);
 
-    final script = File(config.resolve(figma.pushScript));
-    final json = File(p.setExtension(script.path, '.json'));
-    script.parent.createSync(recursive: true);
-    script.writeAsStringSync(buildPushScript(payload, prune: prune));
-    json.writeAsStringSync(
-        '${const JsonEncoder.withIndent('  ').convert(payload)}\n');
+    final scriptPath = config.resolve(figma.pushScript);
+    final dir = Directory(p.dirname(scriptPath))..createSync(recursive: true);
+    final json = File(p.setExtension(scriptPath, '.json'))
+      ..writeAsStringSync(
+          '${const JsonEncoder.withIndent('  ').convert(payload)}\n');
+
+    // Drop parts left over from an earlier, bigger push.
+    final stem = p.basenameWithoutExtension(scriptPath);
+    final partName = RegExp('^${RegExp.escape(stem)}\\.\\d+\\.js\$');
+    for (final f in dir.listSync().whereType<File>()) {
+      if (partName.hasMatch(p.basename(f.path))) f.deleteSync();
+    }
+    final scripts = buildPushScripts(payload, prune: prune);
+    final written = <File>[];
+    if (scripts.length == 1) {
+      written.add(File(scriptPath)..writeAsStringSync(scripts.single));
+    } else {
+      final single = File(scriptPath);
+      if (single.existsSync()) single.deleteSync();
+      for (var i = 0; i < scripts.length; i++) {
+        written.add(File(p.join(dir.path, '$stem.${i + 1}.js'))
+          ..writeAsStringSync(scripts[i]));
+      }
+    }
 
     String rel(File f) => p.relative(f.path, from: config.root);
     info('${plan.variables.length} variables in '
         '${figma.collections.length} collection(s)${prune ? ' (prune: deletes extras)' : ''}\n'
         'Apply in Figma, either:\n'
         '  • Tokenline plugin → Import push file… → ${rel(json)}\n'
-        '  • ask Claude to run ${rel(script)} with use_figma');
+        '  • ask Claude to run ${written.length == 1 ? rel(written.single) : '${written.map(rel).join(', ')} (in order)'} with use_figma');
     return 0;
   }
 }

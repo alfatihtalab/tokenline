@@ -204,7 +204,7 @@ class FigmaConfig {
       codeSyntax = {
         Level.primitives: cr.string('primitives', fallback: '{class}.{name}'),
         Level.semantic: cr.string('semantic', fallback: '{name}'),
-        Level.components: cr.string('components', fallback: '{class}.{name}'),
+        Level.components: cr.string('components', fallback: '{name}'),
       };
       cr.rejectUnknown({'primitives', 'semantic', 'components'});
     }

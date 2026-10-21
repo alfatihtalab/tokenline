@@ -36,8 +36,8 @@ List<LintIssue> lintSnapshot(
   for (final MapEntry(key: level, value: name) in figma.collections.entries) {
     final c = snapshot.collectionNamed(name);
     if (c == null) {
-      add('collection-missing', Severity.error,
-          'No collection "$name" (${level.name}).');
+      add('collection-missing', Severity.warning,
+          'No collection "$name" (${level.name}) yet — run push to create it.');
       continue;
     }
     if (level == Level.semantic) {

@@ -115,6 +115,16 @@ module.exports = async function (figma, hexToRgba) {
     final config = loadFixture(root);
     final payload = buildPushPayload(
         config, FigmaPlan.build(config, TokenModel.load(config)));
+    // A first pull records which tokens Figma has.
+    expect(
+        await runTokenline([
+          '-C',
+          root,
+          'pull',
+          '--from-file',
+          p.join(runMockFigma(payload), 'snapshot.json')
+        ]),
+        0);
     final out = runMockFigma(payload, edits: r'''
 module.exports = async function (figma) { figma._find('Fx / Primitives', 'radius/lg').remove(); };
 ''');
