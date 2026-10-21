@@ -160,6 +160,8 @@ clashes and reserved words, primitives hold values only, semantic tokens link to
 primitives, component colors link to semantic tokens, every theme has a value,
 drafts (`_draft/…`) never sync, and deprecations point at a token that exists.
 The plugin also flags typed colors and primitives used directly on components.
+`validate` and `push` apply the level rules to the token files too, so nothing
+reaches Figma that its lint would reject.
 
 ## CI
 

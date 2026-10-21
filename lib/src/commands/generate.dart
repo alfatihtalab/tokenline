@@ -1,5 +1,6 @@
 import '../emit/emitter.dart';
 import '../errors.dart';
+import '../lint/token_rules.dart';
 import '../loader.dart';
 import 'base.dart';
 
@@ -66,6 +67,11 @@ class ValidateCommand extends TokenlineCommand {
     final result = emit(config, model); // also catches name clashes
     for (final s in result.skipped) {
       warn('$s is not emitted by any generated class');
+    }
+    final issues = lintTokens(config, model);
+    if (issues.isNotEmpty) {
+      throw TokenlineException('${issues.length} rule error(s):\n'
+          '${issues.map((i) => '  ${i.message} [${i.code}]').join('\n')}');
     }
     final themes =
         model.modes.isEmpty ? '' : ', themes: ${model.modes.join(', ')}';

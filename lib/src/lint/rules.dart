@@ -198,6 +198,7 @@ String dartNameGuess(String path, Level level) {
       .split('.')
       .skip(defaultDropFor(path, level))
       .map(kebabToCamel)
+      .where((p) => p.isNotEmpty)
       .toList();
   if (parts.isEmpty) return '';
   final name = [

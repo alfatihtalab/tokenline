@@ -270,7 +270,8 @@ void main() {
 
       final root = createFixtureProject();
       final config = loadFixture(root);
-      final changes = diffResolved(config, TokenModel.load(config), values);
+      final changes =
+          diffResolved(config, TokenModel.load(config), values).changes;
       expect(changes.map((c) => c.describe()), [
         'CHANGE  primitives: color.brand.500: #1B6FE8 -> #0000FF',
         'CHANGE  semantic: color.text.primary (light): {color.neutral.900} (#1B1C21) -> {color.brand.500}',

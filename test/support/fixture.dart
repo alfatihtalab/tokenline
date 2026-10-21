@@ -69,7 +69,7 @@ bool get hasNode {
 /// of `module.exports = async function (figma, hexToRgba) {...}`), then
 /// export. Returns the out dir.
 String runMockFigma(Map<String, Object?> payload,
-    {String? edits, bool prune = false}) {
+    {String? edits, String? setup, bool prune = false}) {
   final out = Directory.systemTemp.createTempSync('tokenline_figma_').path;
   final payloadFile = File(p.join(out, 'payload.json'))
     ..writeAsStringSync(jsonEncode(payload));
@@ -78,12 +78,18 @@ String runMockFigma(Map<String, Object?> payload,
     editsFile = p.join(out, 'edits.js');
     File(editsFile).writeAsStringSync(edits);
   }
+  String? setupFile;
+  if (setup != null) {
+    setupFile = p.join(out, 'setup.js');
+    File(setupFile).writeAsStringSync(setup);
+  }
   final result = Process.runSync('node', [
     'test/support/run_figma.js',
     'lib/src/figma/plugin_src/core.js',
     payloadFile.path,
     out,
-    if (editsFile != null) editsFile,
+    if (editsFile != null || setupFile != null) editsFile ?? '-',
+    if (setupFile != null) setupFile,
   ], environment: {
     if (prune) 'PRUNE': '1'
   });

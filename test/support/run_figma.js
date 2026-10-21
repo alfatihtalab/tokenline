@@ -1,6 +1,6 @@
 // Drives core.js against the mock Figma for the Dart tests.
 //
-//   node run_figma.js <core.js> <payload.json> <out-dir> [edits.js]
+//   node run_figma.js <core.js> <payload.json> <out-dir> [edits.js] [setup.js]
 //
 // Applies the push payload, optionally runs designer edits (a module that
 // exports function(figma, hexToRgba)), then writes:
@@ -14,13 +14,14 @@ var path = require('path');
 var createMockFigma = require('./mock_figma.js').createMockFigma;
 
 async function main() {
-  var corePath = process.argv[2], payloadPath = process.argv[3], outDir = process.argv[4], editsPath = process.argv[5];
+  var corePath = process.argv[2], payloadPath = process.argv[3], outDir = process.argv[4], editsPath = process.argv[5], setupPath = process.argv[6];
   global.figma = createMockFigma('Fixture');
+  if (setupPath) await require(path.resolve(setupPath))(global.figma);
   var core = require(path.resolve(corePath));
   var payload = JSON.parse(fs.readFileSync(payloadPath, 'utf8'));
 
   var summary = await core.figmaApplyPayload(payload, { prune: !!process.env.PRUNE });
-  if (editsPath) await require(path.resolve(editsPath))(global.figma, core.hexToRgba);
+  if (editsPath && editsPath !== '-') await require(path.resolve(editsPath))(global.figma, core.hexToRgba);
 
   var snapshot = await core.figmaExportSnapshot();
   core.figmaStoreSnapshot(snapshot);

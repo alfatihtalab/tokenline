@@ -94,8 +94,22 @@ List<String> adoptChanges(
       case ChangeKind.removed:
         removeToken(c.level, c.path);
       case ChangeKind.renamed:
-        removeToken(c.level, c.fromPath!);
-        addToken(c);
+        // Move the old node so keys tokenline doesn't manage ($extensions,
+        // $description when Figma has none) come along.
+        final from = c.fromPath!.split('.');
+        final to = c.path.split('.');
+        final targets = c.level == Level.semantic
+            ? {for (final e in modeFiles.entries) e.value: c.jsonValues[e.key]}
+            : {sourceOf(c.level, c.fromPath!): c.jsonValues[null]};
+        for (final MapEntry(key: file, value: value) in targets.entries) {
+          final node = files.take(file, from) ??
+              (throw TokenlineException('cannot find ${c.fromPath} in $file'));
+          node[r'$type'] = c.tokenType;
+          node[r'$value'] = value;
+          if (c.description != null) node[r'$description'] = c.description;
+          if (c.deprecated != null) node[r'$deprecated'] = c.deprecated;
+          files.setToken(file, to, node);
+        }
     }
   }
   return files.save();
@@ -153,6 +167,14 @@ class _JsonFiles {
     }
     cur[path.last] = token;
     _dirty.add(rel);
+  }
+
+  /// Removes the token at [path] and returns its node (null if absent).
+  Map<String, Object?>? take(String rel, List<String> path) {
+    final node = nodeAt(rel, path);
+    if (node == null || !node.containsKey(r'$value')) return null;
+    remove(rel, path);
+    return node;
   }
 
   void remove(String rel, List<String> path) {

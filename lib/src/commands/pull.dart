@@ -141,7 +141,11 @@ class PullCommand extends TokenlineCommand {
     }
     info('read ${values.length} values from the sync frame '
         '(legacy: links, descriptions, added and removed variables are not visible)');
-    final changes = diffResolved(config, model, values);
+    final (:changes, :skipped) = diffResolved(config, model, values);
+    if (skipped.isNotEmpty) {
+      warn('the sync frame cannot carry negative numbers; not compared: '
+          '${skipped.join(', ')} (switch to figma.source: plugin)');
+    }
     if (changes.isEmpty) {
       info('Figma matches the token files — nothing to pull');
       return 0;

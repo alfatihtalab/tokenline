@@ -11,3 +11,4 @@
 - The Tokenline Figma plugin: Lint, Fix, Export, Import.
 - Lint rules shared by the CLI and the plugin.
 - Icon pull: Figma components to SVG string constants.
+- `validate` and `push` enforce the level rules on the token files.

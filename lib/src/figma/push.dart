@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import '../config.dart';
+import '../errors.dart';
 import '../names.dart';
 import 'plan.dart';
 import 'plugin_assets.g.dart';
@@ -45,7 +46,7 @@ Map<String, Object?> buildPushPayload(TokenlineConfig config, FigmaPlan plan) {
         },
     ],
     'variables': [
-      for (final v in plan.variables)
+      for (final v in dependencyOrder(plan.variables))
         {
           'path': v.path,
           'level': v.level.name,
@@ -75,6 +76,31 @@ Map<String, Object?> buildPushPayload(TokenlineConfig config, FigmaPlan plan) {
         'modes': figma.modes,
       },
   };
+}
+
+/// Every variable after the variables it links to, keeping the plan's
+/// order otherwise — so a split push never links forward.
+List<PlannedVariable> dependencyOrder(List<PlannedVariable> vars) {
+  final byKey = {for (final v in vars) '${v.collection}|${v.name}': v};
+  final out = <PlannedVariable>[];
+  final done = <String>{};
+  final visiting = <String>{};
+  void visit(PlannedVariable v) {
+    final key = '${v.collection}|${v.name}';
+    if (done.contains(key) || !visiting.add(key)) return;
+    for (final value in v.values.values) {
+      if (value is PlannedAlias) {
+        final target = byKey['${value.targetCollection}|${value.targetName}'];
+        if (target != null) visit(target);
+      }
+    }
+    visiting.remove(key);
+    done.add(key);
+    out.add(v);
+  }
+
+  vars.forEach(visit);
+  return out;
 }
 
 /// Claude's use_figma tool accepts scripts up to 50,000 characters.
@@ -123,7 +149,9 @@ return await figmaApplyPayload(TOKENLINE_PAYLOAD, { prune: ${prune && index == c
           .length;
   final budget = maxChars - overhead;
   if (budget < 2000) {
-    throw StateError('push payload overhead leaves no room for variables');
+    throw TokenlineException('${variables.length} variables are too many to '
+        'prune through use_figma scripts — apply push.figma.json with the '
+        "plugin's Import push file (no size limit) and choose to delete extras");
   }
   final parts = <List<Map<String, Object?>>>[[]];
   var size = 0;

@@ -105,6 +105,11 @@ class TokenSet {
     }
     node.forEach((k, v) {
       if (k.startsWith(r'$')) return;
+      if (k.isEmpty || k.contains(RegExp(r'[.{}]'))) {
+        throw TokenlineException('token name "$k" at '
+            '${[...path, k].join('.')} in $source: names cannot be empty or '
+            'contain ".", "{" or "}" (they would break token paths and links)');
+      }
       if (v is! Map<String, dynamic>) {
         throw TokenlineException(
             'unexpected value at ${[...path, k].join('.')} in $source');
@@ -126,10 +131,23 @@ class TokenSet {
             'alias cycle: ${[...stack, path].join(' -> ')}');
       }
       if (token.resolved != null) return token.resolved;
-      token.resolved = token.isAlias
+      var value = token.isAlias
           ? resolvePath(token.aliasTarget, [...stack, path])
           : token.value;
-      return token.resolved;
+      // Composite values (shadows) may link their parts, e.g. the color.
+      if (value is Map) {
+        value = {
+          for (final e in value.entries)
+            e.key:
+                e.value is String && _aliasPattern.hasMatch(e.value as String)
+                    ? resolvePath(
+                        _aliasPattern.firstMatch(e.value as String)![1]!,
+                        [...stack, path])
+                    : e.value,
+        };
+      }
+      token.resolved = value;
+      return value;
     }
 
     for (final key in tokens.keys) {
@@ -156,8 +174,8 @@ class TokenSet {
         case 'number':
           if (v is! num) fail('number expected, got $v');
         case 'fontWeight':
-          if (v is! int || v < 100 || v > 900) {
-            fail('fontWeight must be 100-900, got $v');
+          if (v is! int || v < 100 || v > 900 || v % 100 != 0) {
+            fail('fontWeight must be 100-900 in steps of 100, got $v');
           }
         case 'fontFamily':
           if (v is! String || v.isEmpty) fail('fontFamily string expected');
@@ -174,6 +192,18 @@ class TokenSet {
               !const {'color', 'offsetX', 'offsetY', 'blur', 'spread'}
                   .every(v.containsKey)) {
             fail('shadow must define color, offsetX, offsetY, blur, spread');
+          }
+          final color = v['color'];
+          if (color is! String ||
+              !RegExp(r'^#[0-9A-Fa-f]{6}([0-9A-Fa-f]{2})?$').hasMatch(color)) {
+            fail(
+                'shadow color must be #RRGGBB, #RRGGBBAA or a link to a color, got $color');
+          }
+          for (final k in const ['offsetX', 'offsetY', 'blur', 'spread']) {
+            final n = v[k];
+            if (!(n is num || (n is String && double.tryParse(n) != null))) {
+              fail('shadow $k must be a number, got $n');
+            }
           }
       }
     }

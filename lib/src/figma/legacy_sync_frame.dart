@@ -73,9 +73,14 @@ ResolvedValues parseSyncFrame(Map<String, Object?> frame) {
 
 /// Compares resolved values with the token files. Semantic changes link to
 /// whichever primitive now has that color (raw hex when none does).
-List<TokenChange> diffResolved(
+///
+/// A width cannot be negative, so numbers that may be negative (letter
+/// spacing, or anything negative in the token files) are skipped and
+/// returned in `skipped` rather than overwritten with 0.
+({List<TokenChange> changes, List<String> skipped}) diffResolved(
     TokenlineConfig config, TokenModel model, ResolvedValues values) {
   final changes = <TokenChange>[];
+  final skipped = <String>[];
 
   // Primitive colors after this pull, for re-linking semantic tokens.
   final hexToPrimitive = <String, String>{};
@@ -90,6 +95,13 @@ List<TokenChange> diffResolved(
     final primitive = model.primitives.tokens[path];
     if (primitive != null && byMode.containsKey('value')) {
       if (figmaTypeForLegacy(primitive) == null) return;
+      if (primitive.type != 'color') {
+        final canonical = num.tryParse('${primitive.resolved}') ?? 0;
+        if (path.split('.').contains('letterSpacing') || canonical < 0) {
+          skipped.add(path);
+          return;
+        }
+      }
       final json = jsonValueFor(
           primitive.type, _parse(primitive.type, byMode['value']!),
           where: 'sync frame $path');
@@ -122,7 +134,7 @@ List<TokenChange> diffResolved(
     }
   });
   changes.sort((a, b) => a.path.compareTo(b.path));
-  return changes;
+  return (changes: changes, skipped: skipped..sort());
 }
 
 Object _parse(String type, String v) =>

@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import '../config.dart';
 import '../errors.dart';
 import '../loader.dart';
@@ -144,6 +146,13 @@ SnapshotDiff diffSnapshot(TokenlineConfig config, TokenModel model,
   }
 
   // ---- index Figma variables by token path -----------------------------
+  // Known names map through the plan, so a token whose path does not
+  // survive the name round trip (kebab keys, capitals) is still itself.
+  final planPath = {for (final v in plan.variables) (v.level, v.name): v.path};
+  String pathOf(FigmaVariable v, Level level) =>
+      planPath[(level, v.name)] ??
+      pathForFigmaName(v.name, level, figma.nameCase,
+          isColor: v.type == FigmaType.color);
   final byKey = <(Level, String), FigmaVariable>{};
   final pathOfId = <String, String>{};
   for (final v in snapshot.variables) {
@@ -154,8 +163,7 @@ SnapshotDiff diffSnapshot(TokenlineConfig config, TokenModel model,
           '${v.collection}: ${v.name} is a boolean — booleans do not sync');
       continue;
     }
-    final path = pathForFigmaName(v.name, level, figma.nameCase,
-        isColor: v.type == FigmaType.color);
+    final path = pathOf(v, level);
     final clash = byKey[(level, path)];
     if (clash != null) {
       throw TokenlineException('Figma variables "${clash.name}" and '
@@ -231,7 +239,7 @@ SnapshotDiff diffSnapshot(TokenlineConfig config, TokenModel model,
     final (deprecation, plain) = splitDescription(v.description);
     final deprecated = deprecation == null
         ? null
-        : deprecatedJsonFor(deprecation, v, snapshot, figma);
+        : deprecatedJsonFor(deprecation, v, snapshot, figma, pathOf);
     final planned = plan.byKey[key];
 
     if (planned == null) {
@@ -264,7 +272,10 @@ SnapshotDiff diffSnapshot(TokenlineConfig config, TokenModel model,
     }
     for (final MapEntry(key: mode, value: figmaMode)
         in modeFor[level]!.entries) {
-      final want = planned.values[figmaMode];
+      // Single-mode collections: one planned value, whatever the mode's name.
+      final want = level == Level.semantic
+          ? planned.values[figmaMode]
+          : planned.values.values.firstOrNull;
       if (want == null) continue;
       final (text, json) =
           jsonOf(v, figmaMode, planned.tokenType, keepLinks: keepLinks);
@@ -334,13 +345,23 @@ SnapshotDiff diffSnapshot(TokenlineConfig config, TokenModel model,
       in changes.where((c) => c.kind == ChangeKind.added).toList()) {
     final removed = removedById[ids[added.path]];
     if (removed == null || removed.level != added.level) continue;
+    // Keep the old token's type; re-read the values with it.
+    final type = plan.byKey[(removed.level, removed.path)]?.tokenType ??
+        added.tokenType!;
+    final v = byKey[(added.level, added.path)]!;
     renames.add(TokenChange(
         kind: ChangeKind.renamed,
         level: added.level,
         path: added.path,
         fromPath: removed.path,
-        tokenType: added.tokenType,
-        jsonValues: added.jsonValues,
+        tokenType: type,
+        jsonValues: {
+          for (final MapEntry(key: mode, value: figmaMode)
+              in modeFor[added.level]!.entries)
+            mode: jsonOf(v, figmaMode, type,
+                    keepLinks: added.level != Level.primitives)
+                .$2,
+        },
         description: added.description,
         deprecated: added.deprecated));
     changes
@@ -383,7 +404,8 @@ bool sameValue(Object a, Object b) {
   }
 
   final an = asNum(a), bn = asNum(b);
-  if (an != null && bn != null) return (an - bn).abs() < 1e-3;
+  // Figma stores numbers as float32: equal there means equal.
+  if (an != null && bn != null) return _f32(an) == _f32(bn);
   if (a is List || b is List) {
     final al = a is List
         ? a
@@ -425,11 +447,15 @@ Object jsonValueFor(String tokenType, Object value, {required String where}) {
       return _numString(value);
     case 'number':
       if (value is! num) bad();
-      final r = _round(value);
-      return r == r.roundToDouble() ? r.round() : r;
+      return shortestFloat32(value);
     case 'fontWeight':
       if (value is! num) bad();
-      return value.round();
+      final w = value.round();
+      if (w < 100 || w > 900 || w % 100 != 0) {
+        throw TokenlineException('$where: font weight $value must be 100–900 '
+            'in steps of 100 (Flutter has no other FontWeight)');
+      }
+      return w;
     case 'duration':
       if (value is! num) bad();
       return '${value.round()}ms';
@@ -440,19 +466,27 @@ Object jsonValueFor(String tokenType, Object value, {required String where}) {
       final parts =
           '$value'.split(',').map((s) => num.tryParse(s.trim())).toList();
       if (parts.length != 4 || parts.contains(null)) bad();
-      return [for (final n in parts) _num(n!)];
+      return [for (final n in parts) shortestFloat32(n!)];
   }
   bad();
 }
 
-double _round(num n) => (n * 1000).round() / 1000;
-num _num(num n) => n == n.roundToDouble() ? n.round() : n;
+double _f32(num n) => (Float32List(1)..[0] = n.toDouble())[0];
 
-/// Figma float noise (0.6000000238) -> `0.6`; whole numbers lose the `.0`.
-String _numString(num n) {
-  final r = _round(n);
-  return r == r.truncateToDouble() ? '${r.truncate()}' : '$r';
+/// The shortest decimal that is the same float32 as [n]: Figma's
+/// 0.6000000238 -> 0.6, -0.0125 stays -0.0125; whole numbers become ints.
+num shortestFloat32(num n) {
+  if (n is int) return n;
+  final f = _f32(n);
+  if (f.isFinite && f == f.roundToDouble() && f.abs() < 1e15) return f.round();
+  for (var p = 1; p <= 9; p++) {
+    final d = double.parse(f.toStringAsPrecision(p));
+    if (_f32(d) == f) return d;
+  }
+  return f;
 }
+
+String _numString(num n) => '${shortestFloat32(n)}';
 
 /// Picks a token type for a variable that only exists in Figma.
 String inferTokenType(String path, String figmaType, TokenModel model) {
@@ -497,8 +531,8 @@ String inferTokenType(String path, String figmaType, TokenModel model) {
 }
 
 /// `@deprecated → text/secondary` -> `Use color.text.secondary instead.`
-Object deprecatedJsonFor(
-    String line, FigmaVariable v, FigmaSnapshot snapshot, FigmaConfig figma) {
+Object deprecatedJsonFor(String line, FigmaVariable v, FigmaSnapshot snapshot,
+    FigmaConfig figma, String Function(FigmaVariable, Level) pathOf) {
   final arrow = RegExp(r'^@deprecated\s*(?:→|->)\s*(.+)$').firstMatch(line);
   if (arrow != null) {
     final targetName = arrow[1]!.trim();
@@ -510,11 +544,7 @@ Object deprecatedJsonFor(
     if (candidates.isNotEmpty) {
       final t = candidates.first;
       final level = figma.levelForCollection(t.collection);
-      if (level != null) {
-        final path = pathForFigmaName(t.name, level, figma.nameCase,
-            isColor: t.type == FigmaType.color);
-        return 'Use $path instead.';
-      }
+      if (level != null) return 'Use ${pathOf(t, level)} instead.';
     }
     return 'Use $targetName instead.';
   }

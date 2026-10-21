@@ -6,6 +6,7 @@ import 'package:path/path.dart' as p;
 import '../errors.dart';
 import '../figma/plan.dart';
 import '../figma/push.dart';
+import '../lint/token_rules.dart';
 import '../loader.dart';
 import 'base.dart';
 
@@ -30,6 +31,12 @@ class PushCommand extends TokenlineCommand {
         (throw TokenlineException('tokenline.yaml has no figma section'));
     final prune = argResults!['prune'] as bool;
     final model = TokenModel.load(config);
+    final issues = lintTokens(config, model);
+    if (issues.isNotEmpty) {
+      throw TokenlineException('not pushing: the token files break '
+          '${issues.length} rule(s) Figma would reject:\n'
+          '${issues.map((i) => '  ${i.message} [${i.code}]').join('\n')}');
+    }
     final plan = FigmaPlan.build(config, model);
     final payload = buildPushPayload(config, plan);
 
