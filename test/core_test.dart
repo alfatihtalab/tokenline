@@ -83,6 +83,7 @@ void main() {
       final c = parse(
           'name: x\ntokens:\n  modes:\n    light: l.json\n    high_contrast: h.json\nfigma:\n  file_key: K\n');
       expect(c.flutter.classPrefix, 'App');
+      expect(c.flutter.runCommand, 'dart run tokenline generate');
       expect(
           c.figma!.modes, {'light': 'Light', 'high_contrast': 'HighContrast'});
       expect(c.figma!.source, FigmaSource.plugin);

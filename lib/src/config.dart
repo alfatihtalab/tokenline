@@ -112,8 +112,11 @@ class FlutterConfig {
             fallback: 'lib/design_system/foundations/generated'),
         classPrefix = r.string('class_prefix', fallback: 'App'),
         classNames = r.stringMap('class_names'),
-        docs = r.stringMap('docs') {
-    r.rejectUnknown({'output_dir', 'class_prefix', 'class_names', 'docs'});
+        docs = r.stringMap('docs'),
+        runCommand =
+            r.string('run_command', fallback: 'dart run tokenline generate') {
+    r.rejectUnknown(
+        {'output_dir', 'class_prefix', 'class_names', 'docs', 'run_command'});
     if (!RegExp(r'^[A-Z][A-Za-z0-9]*$').hasMatch(classPrefix)) {
       throw TokenlineException(
           'flutter.class_prefix must be UpperCamelCase, got "$classPrefix"');
@@ -130,6 +133,10 @@ class FlutterConfig {
 
   /// Class name -> doc comment overrides.
   final Map<String, String> docs;
+
+  /// The command named in generated headers (`// Run: ...`). Lets tokenline
+  /// write byte-identical files while an older generator still checks them.
+  final String runCommand;
 
   /// File name stem for generated files: `App` -> `app`.
   String get fileStem => snakeCase(classPrefix);

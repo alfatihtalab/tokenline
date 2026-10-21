@@ -96,6 +96,7 @@ flutter:
     opacity: AppOpacities
   docs:                      # optional: class -> doc comment
     AppFonts: Typography foundations.
+  # run_command: dart run tool/old_generator.dart   # header text, for side-by-side migrations
 
 figma:
   file_key: AbCdEf123        # figma.com/design/<file_key>/…

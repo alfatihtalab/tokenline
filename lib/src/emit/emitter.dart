@@ -92,7 +92,7 @@ EmitResult emit(TokenlineConfig config, TokenModel model,
 String generatedHeader(TokenlineConfig config) => '''
 // GENERATED CODE — DO NOT MODIFY BY HAND.
 // Source: ${config.tokens.dir}/  (${config.name} v${config.version})
-// Run: dart run tokenline generate
+// Run: ${config.flutter.runCommand}
 ''';
 
 TokenSet _setFor(TokenModel model, ClassSpec spec) => switch (spec.level) {
