@@ -9,16 +9,21 @@ import 'commands/lint.dart';
 import 'commands/plugin.dart';
 import 'commands/pull.dart';
 import 'commands/push.dart';
+import 'commands/sync.dart';
 import 'errors.dart';
 
 /// Runs the `tokenline` command line and returns the exit code.
 Future<int> runTokenline(List<String> args) async {
   final runner = CommandRunner<int>(
-      'tokenline', 'Design tokens for Flutter, synced with Figma.')
+      'tokenline',
+      'Design tokens for Flutter, synced with Figma.\n\n'
+          'Every day: run `tokenline sync`, then open the Tokenline plugin in Figma.')
     ..argParser.addOption('root',
         abbr: 'C', help: 'Project root (default: current directory).')
     ..argParser.addOption('config',
         help: 'Path to tokenline.yaml (default: <root>/tokenline.yaml).')
+    ..addCommand(SetupCommand())
+    ..addCommand(SyncCommand())
     ..addCommand(InitCommand())
     ..addCommand(ValidateCommand())
     ..addCommand(GenerateCommand())

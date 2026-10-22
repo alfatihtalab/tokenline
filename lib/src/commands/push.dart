@@ -11,6 +11,9 @@ import '../loader.dart';
 import 'base.dart';
 
 class PushCommand extends TokenlineCommand {
+  @override
+  bool get hidden => true;
+
   PushCommand() {
     argParser.addFlag('prune',
         negatable: false,

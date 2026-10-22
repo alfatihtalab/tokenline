@@ -2,28 +2,17 @@
 
 Design tokens for Flutter, synced with Figma.
 
-Tokenline keeps one set of [DTCG](https://www.designtokens.org/) token files in
-your repo, turns them into typed Dart constants, and keeps them in step with
-Figma variables in both directions:
+Your tokens live in [DTCG](https://www.designtokens.org/) JSON files in the
+repo. Tokenline turns them into typed Dart constants and keeps them in step
+with Figma variables, in both directions, with one command and one click.
 
-```
-Figma variables ──(plugin Export)──► tokenline pull ──► design_tokens/*.json ──► lib/…/*.g.dart
-        ▲                                                       │
-        └────────────(plugin Import)◄── tokenline push ◄────────┘
-```
+## Three commands
 
-- **One pull.** `dart run tokenline pull` reads Figma, updates the token files and
-  regenerates Dart. Git stays the release gate: review the diff, commit.
-- **Works on every Figma plan.** The Tokenline plugin exports variables (with their
-  links and ids) into the Figma file; the pull reads that with one REST request.
-  No Enterprise-only Variables API needed, and no file-read quota burned per token.
-- **Links survive.** `text/primary → neutral/900` stays a link in JSON
-  (`{color.neutral.900}`), not a copied hex.
-- **Safe by default.** Push never deletes unless you ask (`--prune`). Pull refuses
-  tokens that were removed or renamed in Figma without being deprecated first,
-  because code that uses them would stop compiling.
-- **The same rules everywhere.** The plugin's Lint and `tokenline lint` share one
-  rule set, so designers see problems while designing, not in code review.
+```bash
+dart run tokenline setup    # once: config, starter tokens, the Figma plugin
+dart run tokenline sync     # every time: Figma <-> code, Dart regenerated
+dart run tokenline check    # CI: fails if something is out of date
+```
 
 ## Install
 
@@ -32,48 +21,80 @@ Figma variables ──(plugin Export)──► tokenline pull ──► design_t
 dev_dependencies:
   tokenline:
     git:
-      url: https://github.com/alfatihtalab/tokenline
-      ref: v0.1.0
+      url: https://github.com/alfatihtalab/tokenline.git
+      ref: main
 ```
 
 The generated code needs only Flutter; tokenline itself is a dev dependency.
 
-## Quick start
+## Set up (once)
 
-```bash
-dart run tokenline init --prefix App --file-key <figma file key>
+1. `dart run tokenline setup` — writes `tokenline.yaml`, starter tokens in
+   `design_tokens/`, the generated Dart classes, and the plugin in
+   `figma_plugin/`. Safe to run again: it keeps your files and refreshes the
+   plugin.
+2. In the **Figma desktop app**, in **Design mode** (not Dev Mode): main menu →
+   Plugins → Development → **Import plugin from manifest…** →
+   `figma_plugin/manifest.json`. Once per computer.
+
+## Sync (every time)
+
+1. `dart run tokenline sync`
+2. In Figma, open the Tokenline plugin (⌥⌘P runs it again). It syncs right away.
+
+That's it. Both sides end up identical, the Dart code is regenerated, and the
+terminal tells you what moved. Review the git diff and commit.
+
+**How sync decides.** It remembers the state after the last sync
+(`design_tokens/figma-sync/figma-snapshot.json` — commit it). A change made
+only in Figma goes to the code; a change made only in code goes to Figma; a
+token deleted in code is deleted in Figma. When both sides changed the same
+token differently, sync asks you in the terminal which to keep (or pass
+`--prefer figma|code`). On the first sync every disagreement is asked.
+
+**Safety.** A token deleted or renamed in Figma without being deprecated first
+stops the sync, because code that uses it would no longer compile. Mark it
+`@deprecated → new/name` in Figma instead (or pass `--allow-removals`).
+Figma rule errors (the plugin's **Lint** shows them) also stop the sync.
+
+No Figma API token is needed for sync: the plugin talks directly to
+`tokenline sync` on your computer (`http://localhost:4747`).
+
+## Using the classes
+
+Tokenline generates constants, not a `ThemeData`; map them once:
+
+```dart
+ThemeData buildTheme(Brightness b) {
+  final isLight = b == Brightness.light;
+  return ThemeData(
+    brightness: b,
+    scaffoldBackgroundColor:
+        isLight ? AppColorsLight.backgroundBase : AppColorsDark.backgroundBase,
+    colorScheme: ColorScheme.fromSeed(seedColor: AppColors.brand500, brightness: b)
+        .copyWith(primary: isLight ? AppColorsLight.actionPrimary : AppColorsDark.actionPrimary),
+  );
+}
 ```
 
-That writes `tokenline.yaml`, starter tokens in `design_tokens/`, generates
-`lib/design_system/foundations/generated/app_*.g.dart`, and adds
-`.tokenline.env` to `.gitignore`. Then:
+Elsewhere: `AppSpacing.space16`, `AppRadius.mdBr`, `AppFonts.primary`,
+`AppMotion.fast`. Deprecated tokens become `@Deprecated` constants.
 
-1. Put `FIGMA_ACCESS_TOKEN=figd_…` in `.tokenline.env` (Figma → Settings →
-   Security → Personal access tokens, file read scope). Never commit it, and never
-   put it in the app's own `.env`, which Flutter apps often ship inside the binary.
-2. `dart run tokenline plugin` — writes the Figma plugin to `figma_plugin/`. In
-   Figma: Plugins → Development → Import plugin from manifest.
-3. `dart run tokenline push` — writes `design_tokens/figma-sync/push.figma.json`.
-   In Figma open Tokenline → **Import push file…** to create the variables.
-4. Designers edit, run **Lint**, publish, and click **Export**.
-5. `dart run tokenline pull` — updates the token files and the Dart code.
+## Advanced
 
-## Commands
+These still work but are hidden from `--help`; you rarely need them.
 
-| Command | What it does |
+| Command | Use |
 | --- | --- |
-| `init` | Create `tokenline.yaml` and starter tokens |
-| `validate` | Check types, values, links, cycles, themes and Dart names |
-| `generate` | Regenerate the Dart classes (`--check`: exit 2 if stale) |
-| `check` | CI gate: valid tokens and current generated files |
-| `pull` | Figma → token files → Dart. `--check` reports only (exit 2 on drift), `--from-file export.json` reads a plugin export, `--allow-removals` accepts breaking removals |
-| `push` | Token files → files Figma can apply. `--prune` also deletes extras |
-| `lint` | Run the rules on Figma (or `--from-file`) |
-| `plugin` | Write the Figma plugin (Lint, Fix, Export, Import) |
-| `icons` | Pull icon components as SVG string constants |
+| `pull` / `pull --check` | Figma → code over Figma's REST API (CI, scheduled drift checks). Needs `FIGMA_ACCESS_TOKEN` in `.tokenline.env` |
+| `push` | Write a file for the plugin's **Import push file…** (when `sync` can't run) |
+| `lint` | Run the rules on a Figma export |
+| `generate`, `validate` | Regenerate Dart / check token files only |
+| `icons` | Pull icon components as SVG constants (REST API) |
+| `plugin` | Rewrite `figma_plugin/` only |
 
-Global options: `-C <dir>` runs in another project, `--config <file>` points at
-another `tokenline.yaml`.
+REST reads are capped by Figma at 6 a month for View/Collab seats and files on
+the Starter plan; `sync` uses no API calls.
 
 ## `tokenline.yaml`
 

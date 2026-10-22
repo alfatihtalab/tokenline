@@ -6,6 +6,9 @@ import '../lint/rules.dart';
 import 'base.dart';
 
 class LintCommand extends TokenlineCommand {
+  @override
+  bool get hidden => true;
+
   LintCommand() {
     argParser.addOption('from-file',
         valueHelp: 'export.json',

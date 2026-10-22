@@ -1,4 +1,3 @@
-import 'dart:convert';
 import 'dart:io';
 
 import '../config.dart';
@@ -9,11 +8,15 @@ import '../figma/legacy_sync_frame.dart';
 import '../figma/plan.dart';
 import '../figma/rest.dart';
 import '../figma/snapshot.dart';
+import '../figma/state.dart';
 import '../lint/rules.dart';
 import '../loader.dart';
 import 'base.dart';
 
 class PullCommand extends TokenlineCommand {
+  @override
+  bool get hidden => true;
+
   PullCommand() {
     argParser
       ..addFlag('check',
@@ -69,14 +72,14 @@ class PullCommand extends TokenlineCommand {
 
     final plan = FigmaPlan.build(config, model);
     final diff = diffSnapshot(config, model, plan, snapshot,
-        knownIds: _readIds(config.resolve(figma.idsFile)));
+        knownIds: readFigmaIds(config));
     for (final w in diff.warnings) {
       warn(w);
     }
 
     if (diff.changes.isEmpty) {
       info('Figma matches the token files — nothing to pull');
-      if (!check) _saveState(figma, snapshot, diff.ids);
+      if (!check) saveFigmaState(config, snapshot, diff.ids);
       return 0;
     }
     for (final c in diff.changes) {
@@ -98,7 +101,7 @@ class PullCommand extends TokenlineCommand {
     }
 
     final files = adoptChanges(config, model, diff.changes);
-    _saveState(figma, snapshot, diff.ids);
+    saveFigmaState(config, snapshot, diff.ids);
     final generated = regenerate(check: false, quiet: true);
     info('\nupdated ${files.length} token file(s) and ${generated.length} '
         'Dart file(s) — review the diff, then commit them together');
@@ -117,17 +120,6 @@ class PullCommand extends TokenlineCommand {
     } finally {
       rest.close();
     }
-  }
-
-  void _saveState(
-      FigmaConfig figma, FigmaSnapshot snapshot, Map<String, String> ids) {
-    snapshot.writeFile(config.resolve(figma.snapshotFile));
-    final sorted = Map.fromEntries(
-        ids.entries.toList()..sort((a, b) => a.key.compareTo(b.key)));
-    File(config.resolve(figma.idsFile))
-      ..parent.createSync(recursive: true)
-      ..writeAsStringSync(
-          '${const JsonEncoder.withIndent('  ').convert(sorted)}\n');
   }
 
   Future<int> _pullLegacy(TokenModel model, {required bool check}) async {
@@ -164,10 +156,4 @@ class PullCommand extends TokenlineCommand {
         'Dart file(s) — review the diff, then commit them together');
     return 0;
   }
-}
-
-Map<String, String> _readIds(String path) {
-  final f = File(path);
-  if (!f.existsSync()) return const {};
-  return (jsonDecode(f.readAsStringSync()) as Map).cast<String, String>();
 }

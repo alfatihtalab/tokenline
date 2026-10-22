@@ -19,23 +19,28 @@ class PluginCommand extends TokenlineCommand {
       'Write the Tokenline Figma plugin (Lint, Fix, Export, Import).';
 
   @override
+  bool get hidden => true;
+
+  @override
   int run() {
     final root = globalResults?['root'] as String? ?? '.';
-    final out = Directory(p.join(root, argResults!['out'] as String))
-      ..createSync(recursive: true);
-    final files = {
-      'manifest.json': pluginManifestJson,
-      'code.js': pluginCodeJs,
-      'ui.html': pluginUiHtml,
-    };
-    files.forEach((name, content) {
-      File(p.join(out.path, name)).writeAsStringSync(content);
-    });
-    info('wrote the plugin to ${p.normalize(out.path)}/\n'
-        'In Figma: Plugins → Development → Import plugin from manifest… → '
-        '${p.normalize(p.join(out.path, 'manifest.json'))}\n'
-        'The plugin reads its rules from the Figma file; run '
-        '`dart run tokenline push` and apply it once to store them.');
+    final manifest = writePlugin(p.join(root, argResults!['out'] as String));
+    info('wrote the plugin. In Figma: Plugins → Development → '
+        'Import plugin from manifest… → $manifest');
     return 0;
   }
+}
+
+/// Writes the plugin into [dir]; returns the manifest's absolute path.
+String writePlugin(String dir) {
+  final out = Directory(dir)..createSync(recursive: true);
+  final files = {
+    'manifest.json': pluginManifestJson,
+    'code.js': pluginCodeJs,
+    'ui.html': pluginUiHtml,
+  };
+  files.forEach((name, content) {
+    File(p.join(out.path, name)).writeAsStringSync(content);
+  });
+  return p.normalize(p.absolute(out.path, 'manifest.json'));
 }

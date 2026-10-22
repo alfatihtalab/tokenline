@@ -9,6 +9,9 @@ import 'base.dart';
 /// Figma components -> monochrome SVG string constants. One-way: Figma is
 /// the only author of icons.
 class IconsCommand extends TokenlineCommand {
+  @override
+  bool get hidden => true;
+
   IconsCommand() {
     argParser.addFlag('check',
         negatable: false,

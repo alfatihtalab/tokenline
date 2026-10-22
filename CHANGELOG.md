@@ -1,5 +1,12 @@
 ## 0.1.0-dev
 
+- `tokenline sync`: one command plus one click in the plugin syncs both ways
+  through a local connection (no API token, no rate limits). Three-way merge
+  against the last sync; asks only when both sides changed a token.
+- Three visible commands: `setup`, `sync`, `check`. The others are hidden.
+- Plugin: Sync button that runs on open; Export/Import moved under "Without
+  tokenline sync"; the delete option is a checkbox instead of a pop-up.
+
 - First version, extracted from the Rezme app's token scripts.
 - `tokenline.yaml` config; DTCG token files; generated Dart classes with a layout
   that adapts to the token groups a project has.

@@ -8,12 +8,12 @@ function createMockFigma(fileName) {
   var variables = [];
   var shared = {};
 
-  function makeCollection(name) {
+  function makeCollection(name, id, modeNames) {
     var c = {
-      id: 'VariableCollectionId:' + nextId++,
+      id: id || 'VariableCollectionId:' + nextId++,
       name: name,
       hiddenFromPublishing: false,
-      modes: [{ modeId: nextId++ + ':0', name: 'Mode 1' }],
+      modes: (modeNames || ['Mode 1']).map(function (m) { return { modeId: nextId++ + ':0', name: m }; }),
       renameMode: function (modeId, newName) {
         c.modes.forEach(function (m) { if (m.modeId === modeId) m.name = newName; });
       },
@@ -27,9 +27,9 @@ function createMockFigma(fileName) {
     return c;
   }
 
-  function makeVariable(name, collection, type) {
+  function makeVariable(name, collection, type, id) {
     var v = {
-      id: 'VariableID:' + nextId++,
+      id: id || 'VariableID:' + nextId++,
       name: name,
       variableCollectionId: collection.id,
       resolvedType: type,
@@ -102,6 +102,33 @@ function createMockFigma(fileName) {
     _mode: function (collectionName, modeName) {
       var c = collections.filter(function (x) { return x.name === collectionName; })[0];
       return c.modes.filter(function (m) { return m.name === modeName; })[0].modeId;
+    },
+    // Recreate a file from a snapshot (ids kept) so tests can resume it.
+    _load: function (snap) {
+      snap.collections.forEach(function (c) {
+        nextId = Math.max(nextId, (+String(c.id).replace(/\D+/g, '') || 0) + 1);
+        makeCollection(c.name, c.id, c.modes);
+      });
+      snap.variables.forEach(function (sv) {
+        nextId = Math.max(nextId, (+String(sv.id).replace(/\D+/g, '') || 0) + 1);
+      });
+      snap.variables.forEach(function (sv) {
+        var c = collections.filter(function (x) { return x.name === sv.collection; })[0];
+        var v = makeVariable(sv.name, c, sv.type, sv.id);
+        v.description = sv.description || '';
+        v.scopes = sv.scopes || [];
+        v.hiddenFromPublishing = !!sv.hiddenFromPublishing;
+        Object.keys(sv.values).forEach(function (mode) {
+          var modeId = c.modes.filter(function (m) { return m.name === mode; })[0].modeId;
+          var val = sv.values[mode];
+          if (val && typeof val === 'object') v.valuesByMode[modeId] = { type: 'VARIABLE_ALIAS', id: val.id };
+          else if (sv.type === 'COLOR') {
+            var h = val.replace('#', '');
+            var n = function (i) { return parseInt(h.slice(i, i + 2), 16) / 255; };
+            v.valuesByMode[modeId] = { r: n(0), g: n(2), b: n(4), a: h.length === 8 ? n(6) : 1 };
+          } else v.valuesByMode[modeId] = val;
+        });
+      });
     },
     _collection: function (name) { return collections.filter(function (x) { return x.name === name; })[0]; },
     _create: function (name, collectionName, type) { return makeVariable(name, this._collection(collectionName), type); },

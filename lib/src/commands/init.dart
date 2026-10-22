@@ -4,42 +4,45 @@ import 'dart:io';
 import 'package:path/path.dart' as p;
 
 import '../config.dart';
-import '../errors.dart';
 import 'base.dart';
+import 'plugin.dart';
 
-class InitCommand extends TokenlineCommand {
-  InitCommand() {
+/// `tokenline setup`: everything a project needs, safe to run again (it
+/// keeps existing files and refreshes the Figma plugin).
+class SetupCommand extends TokenlineCommand {
+  SetupCommand() {
     argParser
       ..addOption('prefix',
           defaultsTo: 'App', help: 'Prefix for generated classes (AppColors).')
-      ..addOption('file-key', help: 'Figma file key (from the file URL).')
+      ..addOption('file-key',
+          help: 'Figma file key (only needed for CI pulls and icons).')
       ..addFlag('force',
           negatable: false, help: 'Overwrite an existing tokenline.yaml.');
   }
 
   @override
-  String get name => 'init';
+  String get name => 'setup';
 
   @override
   String get description =>
-      'Create tokenline.yaml and starter token files in this project.';
+      'Set up tokenline in this project (config, starter tokens, Figma plugin).';
 
   @override
   int run() {
     final root = p.absolute(globalResults?['root'] as String? ?? '.');
     final configFile = File(p.join(root, configFileName));
     if (configFile.existsSync() && !(argResults!['force'] as bool)) {
-      throw TokenlineException('$configFileName already exists (use --force)');
+      info('$configFileName exists — kept');
+    } else {
+      configFile.writeAsStringSync(configTemplate(
+          prefix: argResults!['prefix'] as String,
+          fileKey: argResults!['file-key'] as String?));
+      info('created $configFileName');
     }
-    final prefix = argResults!['prefix'] as String;
-    final fileKey = argResults!['file-key'] as String?;
-    configFile
-        .writeAsStringSync(configTemplate(prefix: prefix, fileKey: fileKey));
-    info('wrote $configFileName');
 
-    final tokensDir = Directory(p.join(root, 'design_tokens'));
+    final tokensDir = Directory(p.join(root, config.tokens.dir));
     if (tokensDir.existsSync()) {
-      info('design_tokens/ exists — left as it is');
+      info('${config.tokens.dir}/ exists — kept');
     } else {
       starterTokens.forEach((rel, json) {
         File(p.join(tokensDir.path, rel))
@@ -47,7 +50,7 @@ class InitCommand extends TokenlineCommand {
           ..writeAsStringSync(
               '${const JsonEncoder.withIndent('  ').convert(json)}\n');
       });
-      info('wrote starter tokens in design_tokens/');
+      info('created starter tokens in ${config.tokens.dir}/');
     }
 
     final gitignore = File(p.join(root, '.gitignore'));
@@ -58,17 +61,29 @@ class InitCommand extends TokenlineCommand {
           '${lines.isEmpty || lines.last.isEmpty ? '' : '\n'}'
           '# Figma token for tokenline (never commit it)\n.tokenline.env\n',
           mode: FileMode.append);
-      info('added .tokenline.env to .gitignore');
     }
 
+    final manifest = writePlugin(p.join(root, 'figma_plugin'));
     final changed = regenerate(check: false);
-    info('generated ${changed.length} Dart file(s)\n\nNext:\n'
-        '  1. Put FIGMA_ACCESS_TOKEN=... in .tokenline.env (Figma → Settings → Security)\n'
-        '  2. dart run tokenline plugin   — install the Figma plugin\n'
-        '  3. dart run tokenline push     — create the variables in Figma\n'
-        '  4. dart run tokenline pull     — after designers publish changes');
+    info(
+        '${changed.isEmpty ? 'Dart files are current' : 'generated ${changed.length} Dart file(s)'}\n'
+        '\nReady. Next:\n'
+        '  1. Once per computer, in the Figma desktop app (Design mode):\n'
+        '     main menu → Plugins → Development → Import plugin from manifest…\n'
+        '     → $manifest\n'
+        '  2. Run:  dart run tokenline sync\n'
+        '  3. In Figma, open the Tokenline plugin. It syncs both ways.');
     return 0;
   }
+}
+
+/// Old name for [SetupCommand].
+class InitCommand extends SetupCommand {
+  @override
+  String get name => 'init';
+
+  @override
+  bool get hidden => true;
 }
 
 String configTemplate({required String prefix, String? fileKey}) => '''
@@ -92,7 +107,7 @@ flutter:
   class_prefix: $prefix
 
 figma:
-  file_key: ${fileKey ?? 'PASTE_FILE_KEY'}   # figma.com/design/<file_key>/...
+  file_key: ${fileKey ?? 'PASTE_FILE_KEY'}   # only for CI pulls and icons; sync doesn't need it
   source: plugin         # plugin | variables-api (Enterprise) | sync-frame (legacy)
   name_case: kebab       # font/line-height/tight
   collections:

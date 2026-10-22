@@ -28,8 +28,10 @@ void main() {
     expect(File(p.join(root, 'tokenline.yaml')).readAsStringSync(),
         contains('file_key: ABC'));
     expect(await runTokenline(['-C', root, 'check']), 0);
-    expect(await runTokenline(['-C', root, 'init']), 1,
-        reason: 'refuses to overwrite');
+    expect(await runTokenline(['-C', root, 'init']), 0,
+        reason: 'init is now setup: safe to run again');
+    expect(File(p.join(root, 'tokenline.yaml')).readAsStringSync(),
+        contains('file_key: ABC'));
   });
 
   test('check exits 2 when a token changes, generate fixes it', () async {

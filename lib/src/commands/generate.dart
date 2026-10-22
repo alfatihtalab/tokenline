@@ -5,6 +5,9 @@ import '../loader.dart';
 import 'base.dart';
 
 class GenerateCommand extends TokenlineCommand {
+  @override
+  bool get hidden => true;
+
   GenerateCommand() {
     argParser.addFlag('check',
         negatable: false,
@@ -43,6 +46,9 @@ class GenerateCommand extends TokenlineCommand {
 
 class CheckCommand extends GenerateCommand {
   @override
+  bool get hidden => false;
+
+  @override
   String get name => 'check';
 
   @override
@@ -54,6 +60,9 @@ class CheckCommand extends GenerateCommand {
 }
 
 class ValidateCommand extends TokenlineCommand {
+  @override
+  bool get hidden => true;
+
   @override
   String get name => 'validate';
 

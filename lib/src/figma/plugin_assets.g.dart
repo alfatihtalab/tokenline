@@ -370,6 +370,13 @@ async function figmaApplyPayload(payload, options) {
     summary.updated++;
   });
 
+  // Tokens deleted in code since the last sync (tokenline sync sends them).
+  (payload.delete || []).forEach(function (k) {
+    var sep = k.indexOf('|');
+    var v = find(k.slice(0, sep), k.slice(sep + 1));
+    if (v && !isDraftName(v.name)) { v.remove(); summary.removed++; }
+  });
+
   if (prune) {
     // A split push sends the full keep-list with its last part.
     if (payload.keep) {
@@ -533,6 +540,13 @@ async function figmaApplyPayload(payload, options) {
     if (typeof pv.hiddenFromPublishing === 'boolean') v.hiddenFromPublishing = pv.hiddenFromPublishing;
     if (pv.codeSyntax) v.setVariableCodeSyntax('WEB', pv.codeSyntax);
     summary.updated++;
+  });
+
+  // Tokens deleted in code since the last sync (tokenline sync sends them).
+  (payload.delete || []).forEach(function (k) {
+    var sep = k.indexOf('|');
+    var v = find(k.slice(0, sep), k.slice(sep + 1));
+    if (v && !isDraftName(v.name)) { v.remove(); summary.removed++; }
   });
 
   if (prune) {
@@ -969,6 +983,13 @@ async function figmaApplyPayload(payload, options) {
     summary.updated++;
   });
 
+  // Tokens deleted in code since the last sync (tokenline sync sends them).
+  (payload.delete || []).forEach(function (k) {
+    var sep = k.indexOf('|');
+    var v = find(k.slice(0, sep), k.slice(sep + 1));
+    if (v && !isDraftName(v.name)) { v.remove(); summary.removed++; }
+  });
+
   if (prune) {
     // A split push sends the full keep-list with its last part.
     if (payload.keep) {
@@ -1135,6 +1156,19 @@ figma.ui.onmessage = async function (msg) {
       post({ type: 'import-result', summary: summary });
       cfg = currentConfig();
       post({ type: 'config', config: cfg.config, stored: cfg.stored, fileName: figma.root.name });
+    } else if (msg.type === 'sync-read') {
+      // tokenline sync, step 1: hand the UI Figma's current variables.
+      var current = await figmaExportSnapshot();
+      post({ type: 'sync-snapshot', snapshot: current, fileName: figma.root.name });
+    } else if (msg.type === 'sync-apply') {
+      // Step 2: apply what tokenline sent, then export the result so the
+      // CLI can keep it as the base for the next sync.
+      var applied = await figmaApplyPayload(msg.payload, { prune: false });
+      var after = await figmaExportSnapshot();
+      figmaStoreSnapshot(after);
+      post({ type: 'sync-applied', summary: applied, snapshot: after });
+      cfg = currentConfig();
+      post({ type: 'config', config: cfg.config, stored: cfg.stored, fileName: figma.root.name });
     } else if (msg.type === 'select' && msg.nodeId) {
       var node = await figma.getNodeByIdAsync(msg.nodeId);
       if (!node) return;
@@ -1159,20 +1193,28 @@ const pluginUiHtml = r'''
 <style>
   :root { color-scheme: light dark; }
   body { margin: 0; font: 12px/1.45 Inter, system-ui, sans-serif; color: var(--figma-color-text, #222); background: var(--figma-color-bg, #fff); }
-  header { padding: 12px 14px 8px; border-bottom: 1px solid var(--figma-color-border, #e5e5e5); }
+  header { padding: 12px 14px 10px; border-bottom: 1px solid var(--figma-color-border, #e5e5e5); }
   h1 { font-size: 13px; margin: 0 0 2px; }
   .muted { color: var(--figma-color-text-secondary, #777); }
-  .buttons { display: flex; gap: 6px; padding: 10px 14px; flex-wrap: wrap; }
+  main { padding: 14px; }
+  .sync { display: flex; gap: 10px; align-items: center; }
   button { font: inherit; padding: 6px 10px; border-radius: 6px; border: 1px solid var(--figma-color-border, #ccc); background: var(--figma-color-bg, #fff); color: inherit; cursor: pointer; }
-  button.primary { background: var(--figma-color-bg-brand, #0d99ff); color: var(--figma-color-text-onbrand, #fff); border-color: transparent; }
-  #status { padding: 0 14px 8px; min-height: 18px; }
-  #results { padding: 0 14px 14px; overflow: auto; }
-  .issue { padding: 6px 8px; border-radius: 6px; margin-bottom: 4px; border-left: 3px solid var(--figma-color-border-danger, #f24822); background: var(--figma-color-bg-secondary, #f5f5f5); }
-  .issue.warning { border-left-color: var(--figma-color-border-warning, #ffaf00); }
-  .issue.clickable { cursor: pointer; }
+  button.primary { background: var(--figma-color-bg-brand, #0d99ff); color: var(--figma-color-text-onbrand, #fff); border-color: transparent; padding: 8px 16px; font-weight: 600; }
+  button:disabled { opacity: .5; cursor: default; }
+  #state { font-size: 13px; }
+  #state.ok { color: var(--figma-color-text-success, #14ae5c); }
+  #state.bad { color: var(--figma-color-text-danger, #f24822); }
+  #details { margin-top: 10px; }
+  .item { padding: 6px 8px; border-radius: 6px; margin-bottom: 4px; background: var(--figma-color-bg-secondary, #f5f5f5); }
+  .item.error { border-left: 3px solid var(--figma-color-border-danger, #f24822); }
+  .item.warning { border-left: 3px solid var(--figma-color-border-warning, #ffaf00); }
+  .item.clickable { cursor: pointer; }
   .code { font-family: ui-monospace, monospace; font-size: 11px; }
-  textarea { width: 100%; height: 140px; box-sizing: border-box; font: 11px ui-monospace, monospace; }
-  label { display: flex; gap: 6px; align-items: center; }
+  .row { display: flex; gap: 6px; margin-top: 14px; flex-wrap: wrap; }
+  details { margin-top: 14px; }
+  summary { cursor: pointer; }
+  textarea { width: 100%; height: 120px; box-sizing: border-box; font: 11px ui-monospace, monospace; }
+  label { display: flex; gap: 6px; align-items: center; margin-top: 8px; }
 </style>
 </head>
 <body>
@@ -1180,24 +1222,104 @@ const pluginUiHtml = r'''
   <h1>Tokenline</h1>
   <div id="cfg" class="muted">Loading…</div>
 </header>
-<div class="buttons">
-  <button id="lint" class="primary">Lint</button>
-  <button id="fix">Fix</button>
-  <button id="export">Export</button>
-  <button id="import">Import push file…</button>
-  <input id="file" type="file" accept=".json,application/json" hidden>
-</div>
-<div id="status" class="muted"></div>
-<div id="results"></div>
-<script>
-  var $ = function (id) { return document.getElementById(id); };
-  function send(msg) { parent.postMessage({ pluginMessage: msg }, '*'); }
-  function status(text) { $('status').textContent = text || ''; }
-  function esc(s) { return String(s).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); }
+<main>
+  <div class="sync">
+    <button id="sync" class="primary">Sync</button>
+    <div id="state" class="muted">Connecting…</div>
+  </div>
+  <div id="details"></div>
 
-  $('lint').onclick = function () { $('results').innerHTML = ''; send({ type: 'lint' }); };
+  <div class="row">
+    <button id="lint">Lint</button>
+    <button id="fix">Fix</button>
+  </div>
+
+  <details>
+    <summary class="muted">Without <span class="code">tokenline sync</span></summary>
+    <div class="row">
+      <button id="export">Export to file</button>
+      <button id="import">Import push file…</button>
+      <input id="file" type="file" accept=".json,application/json" hidden>
+    </div>
+    <label><input id="prune" type="checkbox"> Import also deletes variables not in the file</label>
+  </details>
+</main>
+<script>
+  var SERVER = 'http://localhost:4747';
+  var $ = function (id) { return document.getElementById(id); };
+  var busy = false;
+  function send(msg) { parent.postMessage({ pluginMessage: msg }, '*'); }
+  function esc(s) { return String(s).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); }
+  function state(text, kind) { var el = $('state'); el.textContent = text; el.className = kind || 'muted'; }
+  function details(html) { $('details').innerHTML = html || ''; }
+  function list(items, kind) {
+    return items.map(function (t) { return '<div class="item ' + (kind || '') + '">' + esc(t) + '</div>'; }).join('');
+  }
+
+  // ---- talking to `tokenline sync` on this computer -------------------
+  function call(path, body, timeoutMs) {
+    var ctrl = new AbortController();
+    var timer = timeoutMs ? setTimeout(function () { ctrl.abort(); }, timeoutMs) : null;
+    return fetch(SERVER + path, body === undefined ? { signal: ctrl.signal } : {
+      method: 'POST', signal: ctrl.signal,
+      headers: { 'Content-Type': 'text/plain' }, body: JSON.stringify(body),
+    }).then(function (r) { return r.json(); }).finally(function () { if (timer) clearTimeout(timer); });
+  }
+
+  var pending = {};
+  function ask(type, reply) {
+    return new Promise(function (resolve) { pending[reply] = resolve; send({ type: type }); });
+  }
+
+  function notRunning() {
+    busy = false; $('sync').disabled = false;
+    state('Not connected', 'bad');
+    details('<div class="item">In your project folder, run <span class="code">dart run tokenline sync</span>, then click <b>Sync</b>.</div>');
+  }
+
+  function sync() {
+    if (busy) return;
+    busy = true; $('sync').disabled = true; details('');
+    state('Connecting…');
+    call('/hello', undefined, 1500).then(function (hello) {
+      state('Reading Figma…');
+      return new Promise(function (resolve) {
+        pending['sync-snapshot'] = resolve;
+        send({ type: 'sync-read' });
+      }).then(function (msg) {
+        state('Syncing with ' + hello.project + '… (answer in the terminal if it asks)');
+        return call('/sync', { snapshot: msg.snapshot, fileName: msg.fileName });
+      });
+    }, function () { throw 'offline'; }).then(function (plan) {
+      if (!plan.ok) throw plan;
+      state('Updating Figma…');
+      return new Promise(function (resolve) {
+        pending['sync-applied'] = resolve;
+        send({ type: 'sync-apply', payload: plan.payload });
+      }).then(function (msg) {
+        return call('/done', { snapshot: msg.snapshot, summary: msg.summary }).then(function (done) {
+          return { plan: plan, applied: msg.summary, done: done };
+        });
+      });
+    }).then(function (r) {
+      busy = false; $('sync').disabled = false;
+      if (!r.done.ok) { state('Sync did not finish', 'bad'); details(list([r.done.error], 'error')); return; }
+      state('✓ In sync', 'ok');
+      var lines = r.plan.summary.lines.concat(r.applied.errors.map(function (e) { return 'Figma: ' + e; }));
+      details('<div class="muted">' + esc(r.done.message) + '</div>' + list(lines) + list(r.plan.warnings || [], 'warning'));
+    }).catch(function (e) {
+      if (e === 'offline') return notRunning();
+      busy = false; $('sync').disabled = false;
+      state('Sync stopped', 'bad');
+      var msg = e && e.error ? e.error : String(e && e.message ? e.message : e);
+      details(list(msg.split('\n').filter(Boolean), 'error'));
+    });
+  }
+
+  $('sync').onclick = sync;
+  $('lint').onclick = function () { details(''); state('Checking…'); send({ type: 'lint' }); };
   $('fix').onclick = function () { send({ type: 'fix' }); };
-  $('export').onclick = function () { $('results').innerHTML = ''; send({ type: 'export' }); };
+  $('export').onclick = function () { details(''); send({ type: 'export' }); };
   $('import').onclick = function () { $('file').click(); };
   $('file').onchange = function () {
     var f = $('file').files[0];
@@ -1205,11 +1327,9 @@ const pluginUiHtml = r'''
     var reader = new FileReader();
     reader.onload = function () {
       try {
-        var payload = JSON.parse(reader.result);
-        var prune = confirm('Also delete Figma variables that are not in this push file?\n\nOK = delete them, Cancel = keep them.');
-        status('Applying ' + f.name + '…');
-        send({ type: 'import', payload: payload, prune: prune });
-      } catch (e) { status('Could not read ' + f.name + ': ' + e.message); }
+        state('Applying ' + f.name + '…');
+        send({ type: 'import', payload: JSON.parse(reader.result), prune: $('prune').checked });
+      } catch (e) { state('Could not read ' + f.name + ': ' + e.message, 'bad'); }
       $('file').value = '';
     };
     reader.readAsText(f);
@@ -1217,15 +1337,14 @@ const pluginUiHtml = r'''
 
   function renderIssues(issues, blockedExport) {
     var errors = issues.filter(function (i) { return i.severity === 'error'; }).length;
-    var warnings = issues.length - errors;
-    status(blockedExport
-      ? 'Export blocked: fix these ' + errors + ' error(s) first.'
-      : (issues.length ? errors + ' error(s), ' + warnings + ' warning(s).' : 'All clear — 0 errors.'));
-    $('results').innerHTML = issues.map(function (i, n) {
-      return '<div class="issue ' + i.severity + (i.nodeId ? ' clickable' : '') + '" data-n="' + n + '">' +
-        '<div>' + esc(i.message) + '</div><div class="code muted">' + esc(i.code) + '</div></div>';
-    }).join('') + (blockedExport ? '<button id="force">Export anyway</button>' : '');
-    Array.prototype.forEach.call(document.querySelectorAll('.issue.clickable'), function (el) {
+    state(blockedExport ? 'Export blocked: ' + errors + ' error(s)'
+      : (issues.length ? errors + ' error(s), ' + (issues.length - errors) + ' warning(s)' : '✓ No problems'),
+      errors ? 'bad' : (issues.length ? 'muted' : 'ok'));
+    details(issues.map(function (i, n) {
+      return '<div class="item ' + i.severity + (i.nodeId ? ' clickable' : '') + '" data-n="' + n + '">' +
+        esc(i.message) + '<div class="code muted">' + esc(i.code) + '</div></div>';
+    }).join('') + (blockedExport ? '<button id="force">Export anyway</button>' : ''));
+    Array.prototype.forEach.call(document.querySelectorAll('.item.clickable'), function (el) {
       el.onclick = function () { send({ type: 'select', nodeId: issues[+el.dataset.n].nodeId }); };
     });
     if (blockedExport) $('force').onclick = function () { send({ type: 'export', force: true }); };
@@ -1234,31 +1353,32 @@ const pluginUiHtml = r'''
   onmessage = function (e) {
     var msg = e.data.pluginMessage;
     if (!msg) return;
+    if (pending[msg.type]) { var done = pending[msg.type]; delete pending[msg.type]; done(msg); return; }
     if (msg.type === 'config') {
       var c = msg.config;
-      $('cfg').innerHTML = esc(msg.fileName) + ' · ' + (msg.stored ? 'rules from tokenline push' : 'default rules (run tokenline push once to store yours)') +
-        '<br>Collections: ' + esc([c.collections.primitives, c.collections.semantic, c.collections.components].filter(Boolean).join(' · ')) +
-        ' · names: ' + esc(c.nameCase);
+      $('cfg').textContent = msg.fileName + ' · ' + [c.collections.primitives, c.collections.semantic, c.collections.components].filter(Boolean).join(' · ');
     } else if (msg.type === 'status') {
-      status(msg.text);
+      state(msg.text);
     } else if (msg.type === 'error') {
-      status('Error: ' + msg.message);
+      busy = false; $('sync').disabled = false;
+      state('Error', 'bad'); details(list([msg.message], 'error'));
     } else if (msg.type === 'lint-result') {
       renderIssues(msg.issues, msg.blockedExport);
     } else if (msg.type === 'export-result') {
-      status('Exported ' + msg.count + ' variables and stored them in this file. `tokenline pull` can read them now, or save the file below and run `tokenline pull --from-file`.');
+      state('✓ Exported ' + msg.count + ' variables', 'ok');
       var blob = new Blob([msg.json], { type: 'application/json' });
-      $('results').innerHTML = '<p><a id="dl" download="tokenline-export.json">Download tokenline-export.json</a></p><textarea readonly></textarea>';
+      details('<p><a id="dl" download="tokenline-export.json">Download tokenline-export.json</a> — then run <span class="code">tokenline pull --from-file</span></p><textarea readonly></textarea>');
       $('dl').href = URL.createObjectURL(blob);
       document.querySelector('textarea').value = msg.json;
     } else if (msg.type === 'import-result') {
       var s = msg.summary;
-      status('Applied: ' + s.created + ' created, ' + s.updated + ' updated, ' + s.removed + ' removed' +
-        (s.errors.length ? ', ' + s.errors.length + ' problem(s)' : '') + '.');
-      $('results').innerHTML = s.errors.map(function (m) { return '<div class="issue">' + esc(m) + '</div>'; }).join('');
+      state('✓ Applied: ' + s.created + ' created, ' + s.updated + ' updated, ' + s.removed + ' removed', s.errors.length ? 'bad' : 'ok');
+      details(list(s.errors, 'error'));
     }
   };
+
   send({ type: 'init' });
+  sync(); // sync right away when tokenline sync is running
 </script>
 </body>
 </html>
@@ -1275,7 +1395,9 @@ const pluginManifestJson = r'''
   "editorType": ["figma"],
   "documentAccess": "dynamic-page",
   "networkAccess": {
-    "allowedDomains": ["none"]
+    "allowedDomains": ["none"],
+    "devAllowedDomains": ["http://localhost:4747"],
+    "reasoning": "Talks only to `tokenline sync` running on your own computer."
   }
 }
 ''';
